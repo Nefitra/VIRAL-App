@@ -5,6 +5,7 @@ export interface User {
   username: string;
   wallet_address?: string;
   role: 'user' | 'admin';
+  is_admin?: boolean;
   status: 'active' | 'blocked';
   quality_score: 'New User' | 'Verified User' | 'Active User' | 'Trusted User' | 'Partner' | 'High-Risk User' | 'Blocked User';
   viral_power: number;

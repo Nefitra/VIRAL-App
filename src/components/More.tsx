@@ -3,7 +3,8 @@ import { User, Balance } from '../types';
 import { 
   HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen, Trophy, Info, Sparkles,
   Palette, Coins, Lock, ShieldCheck as ShieldCheckIcon, Share2, Percent, Settings, Zap, FileText, Database,
-  CheckSquare, Square, CheckCircle2, AlertCircle, Plus, Minus, Search, ChevronDown, ChevronUp, ArrowRight, RefreshCw
+  CheckSquare, Square, CheckCircle2, AlertCircle, Plus, Minus, Search, ChevronDown, ChevronUp, ArrowRight, RefreshCw,
+  Terminal
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import FAQ from './FAQ';
@@ -13,9 +14,11 @@ interface MoreProps {
   user: User;
   balance: Balance;
   onProfileUpdated: () => void;
+  onOpenAdminCheck?: () => void;
+  onOpenAdminSection?: () => void;
 }
 
-export default function More({ user, balance, onProfileUpdated }: MoreProps) {
+export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck, onOpenAdminSection }: MoreProps) {
   // Navigation sub-tab
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'faq' | 'launch'>('profile');
 
@@ -836,6 +839,48 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                 )}
               </div>
             </div>
+
+            {/* 3.5 Security Verification & Admin Diagnostic Check */}
+            <div className="rounded-xl border border-[#B066FF]/20 bg-[#0B0618]/90 glass p-4 space-y-3.5">
+              <div className="flex items-center justify-between">
+                <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
+                  <ShieldCheckIcon className="h-4 w-4 text-[#FFD36A]" /> Platform Security Audit
+                </h3>
+                <span className="text-[8px] font-mono bg-[#8A2BFF]/10 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded uppercase">Protected</span>
+              </div>
+              <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
+                Run local cryptographic verification, check for backend role sync status, and verify if your active numeric Telegram ID is pre-authorized for administrative console privileges.
+              </p>
+              <button
+                type="button"
+                onClick={onOpenAdminCheck}
+                className="w-full bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:from-[#B066FF] hover:to-[#8A2BFF] text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#8A2BFF]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#8A2BFF]/30 hover:scale-[1.01] active:scale-[0.99]"
+              >
+                <Terminal className="h-4 w-4 text-[#FFD36A]" /> Open Security & Admin Diagnostics
+              </button>
+            </div>
+
+            {/* 3.6 Administrator Console (For authorized admins only) */}
+            {(user.role === 'admin' || user.is_admin === true || (user.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(user.telegram_id.toString()))) && (
+              <div className="rounded-xl border border-[#FFD36A]/30 bg-[#120B04]/90 glass p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
+                    <Settings className="h-4 w-4 text-[#FFD36A]" /> Administrator Console
+                  </h3>
+                  <span className="text-[8px] font-mono bg-[#FFD36A]/10 text-[#FFD36A] border border-[#FFD36A]/20 px-2 py-0.5 rounded uppercase font-bold">Authorized</span>
+                </div>
+                <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
+                  You are recognized as an official platform administrator. Open the full administration panel to manage users, campaigns, resources, escrow, and platform variables.
+                </p>
+                <button
+                  type="button"
+                  onClick={onOpenAdminSection}
+                  className="w-full bg-gradient-to-r from-[#FFD36A] to-[#FF9F1C] hover:from-[#FF9F1C] hover:to-[#FFD36A] text-black text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#FFD36A]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#FFD36A]/30 hover:scale-[1.01] active:scale-[0.99]"
+                >
+                  <Settings className="h-4 w-4 text-black" /> Enter Admin Console
+                </button>
+              </div>
+            )}
 
             {/* Profile update details */}
             <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">

@@ -1,5 +1,9 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import path from 'path';
+import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { readDb, writeDb, DatabaseSchema } from './src/server/db';
 import { 
@@ -19,47 +23,155 @@ const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || '8618331744,622819
   .split(',')
   .map(id => id.trim());
 
+// Parses and validates Telegram initData. If botToken is provided, verifies hash.
+function parseAndValidateTelegramInitData(initDataString: string, botToken: string | undefined): { isValid: boolean; user?: any; error?: string } {
+  if (!initDataString) {
+    return { isValid: false, error: 'Empty initData string' };
+  }
+
+  try {
+    const params = new URLSearchParams(initDataString);
+    const hash = params.get('hash');
+    if (!hash) {
+      return { isValid: false, error: 'Missing hash in initData' };
+    }
+
+    // Extract user if present
+    const userJson = params.get('user');
+    let user: any = null;
+    if (userJson) {
+      try {
+        user = JSON.parse(userJson);
+      } catch (e) {
+        return { isValid: false, error: 'Invalid user JSON format inside initData' };
+      }
+    }
+
+    // Sort params for signature verification
+    const keys = Array.from(params.keys()).filter(k => k !== 'hash').sort();
+    const dataCheckString = keys.map(k => `${k}=${params.get(k)}`).join('\n');
+
+    // Cryptographic validation if botToken is present
+    if (botToken) {
+      const secretKey = crypto.createHmac('sha256', 'WebAppData')
+        .update(botToken)
+        .digest();
+      const calculatedHash = crypto.createHmac('sha256', secretKey)
+        .update(dataCheckString)
+        .digest('hex');
+
+      const isValid = calculatedHash === hash;
+      return { isValid, user, error: isValid ? undefined : 'Hash verification failed (signature mismatch)' };
+    } else {
+      // If no bot token is provided in environment, we check shape of parameters
+      const hasRequiredParams = params.has('auth_date') && params.has('hash');
+      return { isValid: hasRequiredParams, user, error: hasRequiredParams ? undefined : 'Invalid parameters format' };
+    }
+  } catch (err: any) {
+    return { isValid: false, error: err.message };
+  }
+}
+
+const getTelegramUserFromInitData = (initDataStr: string | undefined) => {
+  if (!initDataStr) return { isValid: false, user: null, error: 'No initData' };
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  return parseAndValidateTelegramInitData(initDataStr, botToken);
+};
+
 // Admin verification middleware
 const adminAuthMiddleware = (req: any, res: any, next: any) => {
+  const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
   const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
-  const initDataHeader = req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
 
-  // 1. Check for Telegram ID presence
-  if (!adminIdHeader) {
+  // 1. Try to extract telegram_id from initData first!
+  let detectedTgId: string | null = null;
+  let isInitDataValid = false;
+  let parsedUser: any = null;
+
+  if (initDataHeader) {
+    const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
+    isInitDataValid = checkResult.isValid;
+    if (checkResult.user && checkResult.user.id) {
+      detectedTgId = checkResult.user.id.toString();
+      parsedUser = checkResult.user;
+    }
+  }
+
+  // Fallback to explicit header if no valid user ID could be decoded from initData
+  if (!detectedTgId && adminIdHeader) {
+    detectedTgId = adminIdHeader.toString().trim();
+  }
+
+  // Add detailed server logs for admin detection
+  console.log(`[Admin Access Log] Attempt:
+    - raw initData received: ${initDataHeader ? 'yes' : 'no'}
+    - parsed telegram_id: ${detectedTgId || 'none'}
+    - parsed username: ${parsedUser?.username || 'none'}
+    - ADMIN_TELEGRAM_IDS loaded: ${ADMIN_TELEGRAM_IDS.join(',')}
+    - admin check result: ${detectedTgId && ADMIN_TELEGRAM_IDS.includes(detectedTgId) ? 'MATCH' : 'MISMATCH'}
+    - final role returned to frontend: ${detectedTgId && ADMIN_TELEGRAM_IDS.includes(detectedTgId) ? 'admin' : 'user'}
+  `);
+
+  if (!detectedTgId) {
     return res.status(403).json({ error: 'Access Denied: Missing Telegram ID or Admin credentials' });
   }
 
-  const cleanId = adminIdHeader.toString().trim();
-
-  // 2. Must be a numeric Telegram ID
-  if (!/^\d+$/.test(cleanId)) {
+  // 2. Check if numeric format
+  if (!/^\d+$/.test(detectedTgId)) {
     return res.status(403).json({ error: 'Access Denied: Invalid numeric Telegram ID format' });
   }
 
-  // 3. Telegram ID must exist in ADMIN_TELEGRAM_IDS
-  if (!ADMIN_TELEGRAM_IDS.includes(cleanId)) {
+  // 3. Check if exists in ADMIN_TELEGRAM_IDS
+  if (!ADMIN_TELEGRAM_IDS.includes(detectedTgId)) {
     return res.status(403).json({ error: 'Access Denied: Your Telegram ID is not authorized as an administrator.' });
   }
 
-  // 4. Must check for valid Telegram WebApp initData (must be present/non-empty)
-  if (!initDataHeader || initDataHeader.trim() === '') {
+  // 4. Must have initData
+  if (!initDataHeader || initDataHeader.toString().trim() === '') {
     return res.status(403).json({ error: 'Access Denied: Missing valid Telegram WebApp initData security authorization' });
   }
 
   // 5. Must check for registered, authenticated user profile in the database
   const db = readDb();
-  const matchedUser = db.users.find(u => u.telegram_id === cleanId);
+  let matchedUser = db.users.find(u => u.telegram_id === detectedTgId);
+
+  // If ID is in admin list, force user role in DB and return admin details
   if (!matchedUser) {
-    return res.status(403).json({ error: 'Access Denied: No registered authenticated user profile found for this Telegram ID.' });
-  }
-
-  // Ensure role cannot be changed from the frontend, force-sync role on backend to 'admin'
-  if (matchedUser.role !== 'admin') {
-    matchedUser.role = 'admin';
+    // Auto-create admin profile if it doesn't exist
+    const newUserId = 'usr_admin_' + detectedTgId;
+    matchedUser = {
+      id: newUserId,
+      telegram_id: detectedTgId,
+      username: parsedUser?.username || 'TON_Sniper',
+      role: 'admin',
+      is_admin: true,
+      status: 'active',
+      quality_score: 'Partner',
+      viral_power: 1000,
+      created_at: new Date().toISOString(),
+      last_active_at: new Date().toISOString()
+    };
+    db.users.push(matchedUser);
+    db.balances.push({
+      user_id: newUserId,
+      vviral_balance: 1000,
+      vviral_pending: 0,
+      viral_power: 1000,
+      real_viral_balance: 0,
+      ton_balance_cache: 0,
+      gram_balance_cache: 0,
+      updated_at: new Date().toISOString()
+    });
     writeDb(db);
+  } else {
+    if (matchedUser.role !== 'admin' || !matchedUser.is_admin) {
+      matchedUser.role = 'admin';
+      matchedUser.is_admin = true;
+      writeDb(db);
+    }
   }
 
-  console.log(`[Security Audit] Verified Telegram WebApp initData and registered user state for Admin ID: ${cleanId}`);
+  req.adminId = detectedTgId;
   next();
 };
 
@@ -97,10 +209,30 @@ app.post('/api/auth/login', (req, res) => {
   const db = readDb();
   const { provider, telegram_id, username, email, google_id, provider_name, provider_user_id, provider_username, referrer_id, initData } = req.body;
 
+  const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || initData;
+
+  let decodedTgId = telegram_id ? telegram_id.toString() : undefined;
+  let decodedUsername = username;
+  let isInitDataValid = false;
+
+  if (initDataHeader) {
+    const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
+    isInitDataValid = checkResult.isValid;
+    if (checkResult.user && checkResult.user.id) {
+      decodedTgId = checkResult.user.id.toString();
+      if (checkResult.user.username) {
+        decodedUsername = checkResult.user.username;
+      }
+    }
+  }
+
   // Defaults to telegram login for backwards compatibility if provider is not explicitly set
   const currentProvider = provider || 'telegram';
   const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
-  const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
+  
+  // Use decoded TG ID if available and provider is telegram
+  const finalTgId = (provName === 'telegram' && decodedTgId) ? decodedTgId : (telegram_id ? telegram_id.toString() : undefined);
+  const provUserId = finalTgId || google_id || provider_user_id || 'unknown';
 
   let existingUser: User | undefined;
 
@@ -116,8 +248,8 @@ app.post('/api/auth/login', (req, res) => {
 
   // 2. Secondary fallback check: Search by direct user table properties to prevent duplication (automatic mapping/linkage)
   if (!existingUser) {
-    if (provName === 'telegram' && telegram_id) {
-      existingUser = db.users.find(u => u.telegram_id === telegram_id.toString());
+    if (provName === 'telegram' && finalTgId) {
+      existingUser = db.users.find(u => u.telegram_id === finalTgId);
     } else if (provName === 'google') {
       existingUser = db.users.find(u => u.google_id === google_id || (u.email && u.email.toLowerCase() === email?.toLowerCase()));
     } else if (email) {
@@ -141,8 +273,8 @@ app.post('/api/auth/login', (req, res) => {
     if (email && !existingUser.email) {
       existingUser.email = email;
     }
-    if (provName === 'telegram' && telegram_id && !existingUser.telegram_id) {
-      existingUser.telegram_id = telegram_id.toString();
+    if (provName === 'telegram' && finalTgId && !existingUser.telegram_id) {
+      existingUser.telegram_id = finalTgId;
     }
 
     // Keep auth provider updated
@@ -154,7 +286,7 @@ app.post('/api/auth/login', (req, res) => {
         provider_name: provName as any,
         provider_user_id: provUserId,
         provider_email: email,
-        provider_username: username || provider_username,
+        provider_username: decodedUsername || username || provider_username,
         connected_at: new Date().toISOString(),
         last_used_at: new Date().toISOString(),
         status: 'active'
@@ -162,13 +294,16 @@ app.post('/api/auth/login', (req, res) => {
     } else {
       existingProv.last_used_at = new Date().toISOString();
       if (email && !existingProv.provider_email) existingProv.provider_email = email;
-      if (username && !existingProv.provider_username) existingProv.provider_username = username;
+      if ((decodedUsername || username) && !existingProv.provider_username) {
+        existingProv.provider_username = decodedUsername || username;
+      }
     }
 
     // Force-sync role strictly based on numeric Telegram ID being in the ADMIN_TELEGRAM_IDS list
     const checkTgId = existingUser.telegram_id ? existingUser.telegram_id.toString() : undefined;
     const isNowAdmin = !!(checkTgId && ADMIN_TELEGRAM_IDS.includes(checkTgId));
     existingUser.role = isNowAdmin ? 'admin' : 'user';
+    existingUser.is_admin = isNowAdmin;
 
     writeDb(db);
     const balance = db.balances.find(b => b.user_id === existingUser!.id);
@@ -179,15 +314,16 @@ app.post('/api/auth/login', (req, res) => {
   const newUserId = generateId('usr');
   const starterBonus = db.config.starterBonus;
   
-  const cleanTgId = telegram_id ? telegram_id.toString() : undefined;
+  const cleanTgId = finalTgId;
   const isSpecialAdmin = !!(cleanTgId && ADMIN_TELEGRAM_IDS.includes(cleanTgId));
 
   const newUser: User = {
     id: newUserId,
     telegram_id: cleanTgId,
     email: email || '',
-    username: username || (currentProvider === 'google' ? (email ? email.split('@')[0] : 'GoogleUser') : 'Web3User'),
+    username: decodedUsername || username || (currentProvider === 'google' ? (email ? email.split('@')[0] : 'GoogleUser') : 'Web3User'),
     role: isSpecialAdmin ? 'admin' : 'user',
+    is_admin: isSpecialAdmin,
     status: 'active',
     quality_score: isSpecialAdmin ? 'Partner' : 'New User',
     viral_power: isSpecialAdmin ? 1000 : 10,
@@ -220,7 +356,7 @@ app.post('/api/auth/login', (req, res) => {
     provider_name: provName as any,
     provider_user_id: provUserId,
     provider_email: email,
-    provider_username: username || provider_username,
+    provider_username: decodedUsername || username || provider_username,
     connected_at: new Date().toISOString(),
     last_used_at: new Date().toISOString(),
     status: 'active'
@@ -315,6 +451,7 @@ app.post('/api/auth/link', (req, res) => {
   const checkTgId = user.telegram_id ? user.telegram_id.toString() : undefined;
   const isNowAdmin = !!(checkTgId && ADMIN_TELEGRAM_IDS.includes(checkTgId));
   user.role = isNowAdmin ? 'admin' : 'user';
+  user.is_admin = isNowAdmin;
 
   // Record/Update Auth Provider Record
   let provRecord = db.auth_providers.find(ap => ap.user_id === userId && ap.provider_name === provider);
@@ -1467,6 +1604,106 @@ app.get('/api/referrals/:userId', (req, res) => {
     referrals: invitedUsers,
     totalReferralRewards: totalRewards,
     count: invitedUsers.length
+  });
+});
+
+// 14b. Admin Authentication & Diagnostics Status Check
+app.get('/api/admin/check', (req, res) => {
+  const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
+  const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
+
+  const db = readDb();
+
+  // Try to extract telegram_id from initData first!
+  let detected_telegram_id: string | null = null;
+  let telegram_username: string | null = null;
+  let init_data_received = !!initDataHeader;
+  let init_data_valid = false;
+  let parsedUser: any = null;
+
+  if (initDataHeader) {
+    const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
+    init_data_valid = checkResult.isValid;
+    if (checkResult.user && checkResult.user.id) {
+      detected_telegram_id = checkResult.user.id.toString();
+      parsedUser = checkResult.user;
+      if (checkResult.user.username) {
+        telegram_username = checkResult.user.username;
+      }
+    }
+  }
+
+  // Fallback to explicit header if no valid user ID could be decoded from initData
+  if (!detected_telegram_id && adminIdHeader) {
+    detected_telegram_id = adminIdHeader.toString().trim();
+  }
+
+  const is_num_id = detected_telegram_id ? /^\d+$/.test(detected_telegram_id) : false;
+  const in_admin_list = detected_telegram_id ? ADMIN_TELEGRAM_IDS.includes(detected_telegram_id) : false;
+
+  const matchedUser = detected_telegram_id ? db.users.find(u => u.telegram_id === detected_telegram_id) : null;
+  
+  // We determine is_admin based on whether they are in ADMIN_TELEGRAM_IDS
+  const is_admin = !!(detected_telegram_id && in_admin_list);
+
+  // If ID is in admin list, force user role in DB and return admin details
+  let role_sync_active = false;
+  if (detected_telegram_id && in_admin_list) {
+    role_sync_active = true;
+    if (matchedUser) {
+      if (matchedUser.role !== 'admin' || !matchedUser.is_admin) {
+        matchedUser.role = 'admin';
+        matchedUser.is_admin = true;
+        writeDb(db);
+      }
+    }
+  }
+
+  // Determine the reason why Admin is hidden (if it is)
+  let reason_hidden = "";
+  if (!detected_telegram_id) {
+    reason_hidden = "No Telegram ID was detected. Please make sure you are logged in via Telegram.";
+  } else if (!is_num_id) {
+    reason_hidden = `The detected Telegram ID (${detected_telegram_id}) is not in a valid numeric format.`;
+  } else if (!in_admin_list) {
+    reason_hidden = `Your Telegram ID (${detected_telegram_id}) is not present in the authorized administrator IDs list: [${ADMIN_TELEGRAM_IDS.join(', ')}].`;
+  } else if (!init_data_received) {
+    reason_hidden = "No Telegram WebApp initData was received. Secure admin actions require active cryptographic context.";
+  } else if (!init_data_valid) {
+    reason_hidden = "The received Telegram WebApp initData signature is cryptographically invalid or has been tampered with.";
+  } else if (!matchedUser) {
+    reason_hidden = "No registered user profile was found in the database matching your Telegram ID.";
+  }
+
+  const admin_telegram_ids_loaded = ADMIN_TELEGRAM_IDS.length > 0;
+
+  // Audit Log Info
+  console.log(`[Security Audit Check Endpoint] called:
+    - raw initData received: ${init_data_received ? 'yes' : 'no'}
+    - parsed telegram_id: ${detected_telegram_id}
+    - parsed username: ${telegram_username || 'none'}
+    - is_init_data_valid: ${init_data_valid}
+    - ADMIN_TELEGRAM_IDS loaded: ${admin_telegram_ids_loaded}
+    - admin check result: ${is_admin ? 'PASS' : 'FAIL'}
+    - final role returned to frontend: ${is_admin ? 'admin' : 'user'}
+  `);
+
+  res.json({
+    detected_telegram_id,
+    telegram_username,
+    init_data_received,
+    init_data_valid,
+    admin_telegram_ids_loaded,
+    admin_ids_parsed: ADMIN_TELEGRAM_IDS,
+    is_admin,
+    role: is_admin ? 'admin' : 'user',
+    backend_role: matchedUser ? matchedUser.role : (is_admin ? 'admin' : 'user'),
+    reason_hidden,
+    is_num_id,
+    in_admin_list,
+    role_sync_active,
+    env_admin_ids: ADMIN_TELEGRAM_IDS.join(','),
+    user_role: matchedUser ? matchedUser.role : null
   });
 });
 

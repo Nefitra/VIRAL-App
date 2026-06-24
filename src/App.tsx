@@ -14,6 +14,7 @@ import Wallet from './components/Wallet';
 import Referrals from './components/Referrals';
 import More from './components/More';
 import Admin from './components/Admin';
+import AdminCheck from './components/AdminCheck';
 import { ToastProvider, useToast } from './components/Toast';
 
 function MainApp() {
@@ -248,6 +249,8 @@ function MainApp() {
                 user={currentUser} 
                 balance={currentBalance} 
                 onProfileUpdated={reloadUserAndBalance} 
+                onOpenAdminCheck={() => setActiveTab('admin-check')}
+                onOpenAdminSection={() => setActiveTab('admin')}
               />
             )}
 
@@ -255,6 +258,13 @@ function MainApp() {
               <Admin 
                 user={currentUser}
                 onBondingToggled={reloadUserAndBalance} 
+              />
+            )}
+
+            {activeTab === 'admin-check' && (
+              <AdminCheck 
+                user={currentUser}
+                onBack={() => setActiveTab('more')}
               />
             )}
           </div>
@@ -453,7 +463,7 @@ function MainApp() {
               <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">More</span>
             </button>
 
-            {currentUser.role === 'admin' && currentUser.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(currentUser.telegram_id.toString()) && (
+            {(currentUser.role === 'admin' || currentUser.is_admin === true || (currentUser.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(currentUser.telegram_id.toString()))) && (
               <button
                 id="app-tab-admin"
                 onClick={() => { setActiveTab('admin'); setSelectedCampaignFromDiscover(null); }}
