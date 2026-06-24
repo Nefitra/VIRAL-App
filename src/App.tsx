@@ -14,8 +14,10 @@ import Wallet from './components/Wallet';
 import Referrals from './components/Referrals';
 import More from './components/More';
 import Admin from './components/Admin';
+import { ToastProvider, useToast } from './components/Toast';
 
-export default function App() {
+function MainApp() {
+  const { showToast } = useToast();
   // Pre-loaded switchable users for preview and simulation
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentBalance, setCurrentBalance] = useState<Balance | null>(null);
@@ -30,10 +32,10 @@ export default function App() {
 
   // Initial fetch for the default earner user session to make it work out of the box
   useEffect(() => {
-    handleLoginSimulation('11223344', 'TON_Sniper');
+    handleLoginSimulation('11223344', 'TON_Sniper', undefined, true);
   }, []);
 
-  const handleLoginSimulation = (tgId: string, username: string, email?: string) => {
+  const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false) => {
     setAuthError('');
     fetch('/api/auth/login', {
       method: 'POST',
@@ -48,15 +50,20 @@ export default function App() {
       .then(data => {
         if (data.error) {
           setAuthError(data.error);
+          showToast(data.error, 'error', 'Simulation Error');
         } else {
           setCurrentUser(data.user);
           setCurrentBalance(data.balance);
           setActiveTab('home');
+          if (!isSilent) {
+            showToast(`Switched simulation session to @${username}`, 'success', 'Session Synced');
+          }
         }
       })
       .catch(err => {
         console.error('Login error:', err);
         setAuthError('Ecosystem server offline. Please compile and try again.');
+        showToast('Ecosystem server offline.', 'error', 'Network Failure');
       });
   };
 
@@ -84,6 +91,7 @@ export default function App() {
   const handleSelectCampaignFromDiscover = (campaign: any) => {
     setSelectedCampaignFromDiscover(campaign);
     setActiveTab('earn');
+    showToast(`Selected campaign: ${campaign.title}. Headed to Earn tab!`, 'info', 'Campaign Selected');
   };
 
   return (
@@ -395,5 +403,13 @@ export default function App() {
       )}
 
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ToastProvider>
+      <MainApp />
+    </ToastProvider>
   );
 }

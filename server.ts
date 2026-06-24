@@ -1086,7 +1086,7 @@ app.get('/api/admin/stats', (req, res) => {
 app.post('/api/completions/:completionId/approve', (req, res) => {
   const db = readDb();
   const { completionId } = req.params;
-  const { approve } = req.body; // boolean
+  const { approve, reason } = req.body; // boolean, string
 
   const completion = db.task_completions.find(tc => tc.id === completionId);
   if (!completion) {
@@ -1168,6 +1168,7 @@ app.post('/api/completions/:completionId/approve', (req, res) => {
     // Reject: Refund to Advertiser Escrow budget
     completion.status = 'rejected';
     completion.rejected_at = new Date().toISOString();
+    completion.rejection_reason = reason || 'Manual audit rejection due to invalid or suspicious task verification data.';
 
     escrow.pending_amount -= completion.reward_amount;
     escrow.available_amount += completion.reward_amount; // Refund budget to escrow
@@ -1403,6 +1404,54 @@ app.get('/api/admin/completions', (req, res) => {
       };
     });
   res.json(list);
+});
+
+app.get('/api/admin/audit-logs', (req, res) => {
+  const db = readDb();
+  
+  // 1. Map all fraud flags
+  const fraudLogs = db.fraud_flags.map(flag => {
+    const user = db.users.find(u => u.id === flag.user_id);
+    const camp = db.campaigns.find(c => c.id === flag.campaign_id);
+    const resource = camp ? db.resources.find(r => r.id === camp.resource_id) : null;
+    return {
+      id: flag.id,
+      user_id: flag.user_id,
+      username: user ? user.username : 'Unknown',
+      campaign_id: flag.campaign_id,
+      campaign_title: resource ? resource.title : (camp ? camp.campaign_type : 'Unknown'),
+      risk_score: flag.risk_score,
+      reason: flag.reason,
+      status: flag.status,
+      created_at: flag.created_at
+    };
+  }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  // 2. Map all rejected completions
+  const rejectedCompletions = db.task_completions
+    .filter(tc => tc.status === 'rejected')
+    .map(tc => {
+      const user = db.users.find(u => u.id === tc.user_id);
+      const camp = db.campaigns.find(c => c.id === tc.campaign_id);
+      const resource = camp ? db.resources.find(r => r.id === camp.resource_id) : null;
+      return {
+        id: tc.id,
+        user_id: tc.user_id,
+        username: user ? user.username : 'Unknown',
+        campaign_title: resource ? resource.title : (camp ? camp.campaign_type : 'Unknown Campaign'),
+        action_type: tc.action_type,
+        reward_amount: tc.reward_amount,
+        risk_score: tc.risk_score,
+        verification_data: tc.verification_data,
+        rejected_at: tc.rejected_at || tc.created_at,
+        rejection_reason: tc.rejection_reason || 'Manual audit rejection due to suspicious payload'
+      };
+    }).sort((a, b) => new Date(b.rejected_at).getTime() - new Date(a.rejected_at).getTime());
+
+  res.json({
+    fraudLogs,
+    rejectedCompletions
+  });
 });
 
 // Admin approves/rejects fraud flag

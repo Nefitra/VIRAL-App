@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Rocket, Plus, ShieldAlert, Coins, Sparkles, PlusCircle, LayoutGrid, CheckCircle } from 'lucide-react';
 import { User, Balance, Resource } from '../types';
+import { useToast } from './Toast';
 
 interface PromoteProps {
   user: User;
@@ -9,6 +10,7 @@ interface PromoteProps {
 }
 
 export default function Promote({ user, balance, onCampaignCreated }: PromoteProps) {
+  const { showToast } = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddResource, setShowAddResource] = useState(false);
@@ -59,7 +61,9 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
     setResSuccess('');
 
     if (!resTitle || !resUrl || !resDescription) {
-      setResError('Please fill in all primary resource fields.');
+      const err = 'Please fill in all primary resource fields.';
+      setResError(err);
+      showToast(err, 'error', 'Resource Error');
       return;
     }
 
@@ -80,12 +84,13 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
       .then(data => {
         if (data.error) {
           setResError(data.error);
+          showToast(data.error, 'error', 'Submission Rejected');
         } else {
-          setResSuccess(
-            data.rewardEarned 
-              ? `Resource submitted successfully! Earned +${data.rewardEarned} vVIRAL first resource bonus!` 
-              : 'Resource submitted successfully! Awaiting quick admin approval.'
-          );
+          const successMsg = data.rewardEarned 
+            ? `Resource submitted successfully! Earned +${data.rewardEarned} vVIRAL first resource bonus!` 
+            : 'Resource submitted successfully! Awaiting quick admin approval.';
+          setResSuccess(successMsg);
+          showToast(successMsg, data.rewardEarned ? 'reward' : 'success', 'Resource Submitted');
           setResTitle('');
           setResUrl('');
           setResDescription('');
@@ -96,7 +101,10 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
           }, 3000);
         }
       })
-      .catch(() => setResError('Network error submitting resource.'));
+      .catch(() => {
+        setResError('Network error submitting resource.');
+        showToast('Network error submitting resource.', 'error', 'Network Failure');
+      });
   };
 
   const handleCreateCampaign = (e: React.FormEvent) => {
@@ -108,19 +116,27 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
     const reward = Number(campReward);
 
     if (!selectedResId) {
-      setCampError('Please select or add a promotion resource first.');
+      const err = 'Please select or add a promotion resource first.';
+      setCampError(err);
+      showToast(err, 'error', 'Campaign Error');
       return;
     }
     if (budget <= 0 || isNaN(budget)) {
-      setCampError('Please enter a valid positive budget amount.');
+      const err = 'Please enter a valid positive budget amount.';
+      setCampError(err);
+      showToast(err, 'error', 'Budget Required');
       return;
     }
     if (reward <= 0 || isNaN(reward)) {
-      setCampError('Please enter a valid reward per verified action.');
+      const err = 'Please enter a valid reward per verified action.';
+      setCampError(err);
+      showToast(err, 'error', 'Reward Required');
       return;
     }
     if (budget > (balance?.vviral_balance || 0)) {
-      setCampError(`Insufficient balance. You need ${budget} vVIRAL, but have only ${balance?.vviral_balance || 0} vVIRAL.`);
+      const err = `Insufficient balance. You need ${budget} vVIRAL, but have only ${balance?.vviral_balance || 0} vVIRAL.`;
+      setCampError(err);
+      showToast(err, 'error', 'Funds Depleted');
       return;
     }
 
@@ -128,7 +144,9 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
     const platformFee = Math.floor(budget * 0.1);
     const escrowAmount = budget - platformFee;
     if (reward > escrowAmount) {
-      setCampError(`Reward per action (${reward} vVIRAL) cannot exceed the escrow reward budget (${escrowAmount} vVIRAL).`);
+      const err = `Reward per action (${reward} vVIRAL) cannot exceed the escrow reward budget (${escrowAmount} vVIRAL).`;
+      setCampError(err);
+      showToast(err, 'error', 'Budget Too High');
       return;
     }
 
@@ -148,8 +166,10 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
       .then(data => {
         if (data.error) {
           setCampError(data.error);
+          showToast(data.error, 'error', 'Campaign Failed');
         } else {
           setCampSuccess('Promotion Campaign launched successfully! Funds are locked in secure Escrow.');
+          showToast('Ecosystem campaign active! Budget locked in secure smart-escrow contracts.', 'success', 'Campaign Active');
           setCampBudget('');
           onCampaignCreated();
           setTimeout(() => {
@@ -158,7 +178,10 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
           }, 3000);
         }
       })
-      .catch(() => setCampError('Network error creating campaign.'));
+      .catch(() => {
+        setCampError('Network error creating campaign.');
+        showToast('Ecosystem connection failed.', 'error', 'Network Failure');
+      });
   };
 
   // Preview Calculations

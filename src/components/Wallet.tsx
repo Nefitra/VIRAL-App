@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Coins, Send, Award, Wallet2, ShieldCheck, ArrowDownToLine, RefreshCw, Clipboard } from 'lucide-react';
 import { User, Balance } from '../types';
+import { useToast } from './Toast';
 
 interface WalletProps {
   user: User;
@@ -9,6 +10,7 @@ interface WalletProps {
 }
 
 export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps) {
+  const { showToast } = useToast();
   // Transfer Form States
   const [recipient, setRecipient] = useState('');
   const [sendAmount, setSendAmount] = useState('');
@@ -58,15 +60,21 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
 
     const amt = Number(sendAmount);
     if (!recipient) {
-      setSendError('Please enter recipient Username or Telegram ID.');
+      const err = 'Please enter recipient Username or Telegram ID.';
+      setSendError(err);
+      showToast(err, 'error', 'Transfer Error');
       return;
     }
     if (amt <= 0 || isNaN(amt)) {
-      setSendError('Please enter a valid positive transfer amount.');
+      const err = 'Please enter a valid positive transfer amount.';
+      setSendError(err);
+      showToast(err, 'error', 'Amount Required');
       return;
     }
     if (amt > balance.vviral_balance) {
-      setSendError(`Insufficient balance. Your current balance: ${balance.vviral_balance} vVIRAL.`);
+      const err = `Insufficient balance. Your current balance: ${balance.vviral_balance} vVIRAL.`;
+      setSendError(err);
+      showToast(err, 'error', 'Insufficient Funds');
       return;
     }
 
@@ -86,8 +94,11 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
         setIsSending(false);
         if (data.error) {
           setSendError(data.error);
+          showToast(data.error, 'error', 'Transfer Denied');
         } else {
-          setSendSuccess(`Successfully transferred ${data.received} vVIRAL to @${data.recipientName}! Fee: ${data.fee} vVIRAL.`);
+          const successMsg = `Successfully transferred ${data.received} vVIRAL to @${data.recipientName}! Fee: ${data.fee} vVIRAL.`;
+          setSendSuccess(successMsg);
+          showToast(successMsg, 'success', 'Transfer Complete');
           setSendAmount('');
           setRecipient('');
           onBalanceUpdated();
@@ -97,13 +108,16 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
       .catch(() => {
         setIsSending(false);
         setSendError('Network error executing transfer.');
+        showToast('Ecosystem connection offline.', 'error', 'Network Failure');
       });
   };
 
   const handleClaim = () => {
     if (!claimInfo || !claimInfo.isBonded) return;
     if (!user.wallet_address) {
-      setClaimError('Please connect your TON wallet in the Profile first.');
+      const err = 'Please connect your TON wallet in the Profile first.';
+      setClaimError(err);
+      showToast(err, 'error', 'No Wallet Connected');
       return;
     }
 
@@ -121,12 +135,13 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
         setClaiming(false);
         if (data.error) {
           setClaimError(data.error);
+          showToast(data.error, 'error', 'Claim Rejected');
         } else {
-          setClaimSuccess(
-            data.claim.status === 'completed'
-              ? `Real $VIRAL Claim paid successfully! Transferred ${data.claim.real_viral_amount.toLocaleString()} Real $VIRAL to your TON wallet!`
-              : 'Claim submitted successfully! Currently under manual security audit.'
-          );
+          const successMsg = data.claim.status === 'completed'
+            ? `Real $VIRAL Claim paid successfully! Transferred ${data.claim.real_viral_amount.toLocaleString()} Real $VIRAL to your TON wallet!`
+            : 'Claim submitted successfully! Currently under manual security audit.';
+          setClaimSuccess(successMsg);
+          showToast(successMsg, 'reward', 'Claim Action Success');
           onBalanceUpdated();
           fetchClaimAndTxs();
         }
@@ -134,6 +149,7 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
       .catch(() => {
         setClaiming(false);
         setClaimError('Network error submitting claim.');
+        showToast('Network error submitting claim.', 'error', 'Network Failure');
       });
   };
 

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, CheckCircle, XCircle, Settings, RefreshCw, 
-  Trash2, AlertTriangle, ToggleLeft, ToggleRight, Database, Users, TrendingUp 
+  Trash2, AlertTriangle, ToggleLeft, ToggleRight, Database, Users, TrendingUp,
+  History, ShieldCheck, FileText, X
 } from 'lucide-react';
 
 interface AdminProps {
@@ -20,6 +21,29 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   const [feePercentInput, setFeePercentInput] = useState('');
   const [dailyLimitInput, setDailyLimitInput] = useState('');
   const [configSuccess, setConfigSuccess] = useState(false);
+
+  // Audit Logs States
+  const [auditLogs, setAuditLogs] = useState<{ fraudLogs: any[]; rejectedCompletions: any[] }>({
+    fraudLogs: [],
+    rejectedCompletions: []
+  });
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+
+  const fetchAuditLogs = () => {
+    setLoadingAudit(true);
+    fetch('/api/admin/audit-logs')
+      .then(res => res.json())
+      .then(data => {
+        setAuditLogs(data);
+        setLoadingAudit(false);
+      })
+      .catch(err => {
+        console.error('Error fetching audit logs:', err);
+        setLoadingAudit(false);
+      });
+  };
 
   const fetchAdminData = () => {
     setLoading(true);
@@ -42,6 +66,7 @@ export default function Admin({ onBondingToggled }: AdminProps) {
         setDailyLimitInput(statsData.config?.dailyRewardLimit?.toString() || '1000');
         
         setLoading(false);
+        fetchAuditLogs();
       })
       .catch(err => {
         console.error('Error fetching admin data:', err);
@@ -100,11 +125,11 @@ export default function Admin({ onBondingToggled }: AdminProps) {
       .catch(err => console.error(err));
   };
 
-  const handleResolveCompletion = (completionId: string, approve: boolean) => {
+  const handleResolveCompletion = (completionId: string, approve: boolean, reason?: string) => {
     fetch(`/api/completions/${completionId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ approve })
+      body: JSON.stringify({ approve, reason })
     })
       .then(res => res.json())
       .then(() => fetchAdminData())
@@ -263,22 +288,64 @@ export default function Admin({ onBondingToggled }: AdminProps) {
                   </div>
                 </div>
 
-                <div className="flex gap-1.5 shrink-0">
-                  <button
-                    id={`admin-btn-approve-task-${tc.id}`}
-                    onClick={() => handleResolveCompletion(tc.id, true)}
-                    className="inline-flex items-center gap-1 bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#38F8B0]/20 cursor-pointer transition-all"
-                  >
-                    <CheckCircle className="h-3 w-3" /> Approve
-                  </button>
-                  <button
-                    id={`admin-btn-reject-task-${tc.id}`}
-                    onClick={() => handleResolveCompletion(tc.id, false)}
-                    className="inline-flex items-center gap-1 bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#FF4D6D]/20 cursor-pointer transition-all"
-                  >
-                    <XCircle className="h-3 w-3" /> Reject
-                  </button>
-                </div>
+                {rejectingId === tc.id ? (
+                  <div className="flex flex-col gap-2 bg-[#05020D]/80 p-2.5 rounded-lg border border-[#FF4D6D]/30 w-full sm:max-w-[240px]">
+                    <span className="text-[9px] font-mono text-[#FF4D6D] uppercase font-bold tracking-wider">Specify Rejection Reason:</span>
+                    <input
+                      id={`input-reject-reason-${tc.id}`}
+                      type="text"
+                      value={rejectionReasonInput}
+                      onChange={(e) => setRejectionReasonInput(e.target.value)}
+                      placeholder="e.g. Skipped dwell duration check"
+                      className="w-full rounded bg-[#0B0618] border border-[#FF4D6D]/20 p-1.5 text-[11px] text-white font-mono focus:border-[#FF4D6D] focus:outline-none placeholder:text-gray-600"
+                    />
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        id={`btn-cancel-reject-${tc.id}`}
+                        type="button"
+                        onClick={() => {
+                          setRejectingId(null);
+                          setRejectionReasonInput('');
+                        }}
+                        className="px-2 py-1 text-[9px] font-mono rounded border border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white cursor-pointer transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        id={`btn-confirm-reject-${tc.id}`}
+                        type="button"
+                        onClick={() => {
+                          handleResolveCompletion(tc.id, false, rejectionReasonInput);
+                          setRejectingId(null);
+                          setRejectionReasonInput('');
+                        }}
+                        className="px-2.5 py-1 text-[9px] font-mono rounded bg-[#FF4D6D] hover:bg-[#FF4D6D]/90 text-white font-bold cursor-pointer transition-colors"
+                      >
+                        Confirm
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      id={`admin-btn-approve-task-${tc.id}`}
+                      onClick={() => handleResolveCompletion(tc.id, true)}
+                      className="inline-flex items-center gap-1 bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#38F8B0]/20 cursor-pointer transition-all"
+                    >
+                      <CheckCircle className="h-3 w-3" /> Approve
+                    </button>
+                    <button
+                      id={`admin-btn-reject-task-${tc.id}`}
+                      onClick={() => {
+                        setRejectingId(tc.id);
+                        setRejectionReasonInput('');
+                      }}
+                      className="inline-flex items-center gap-1 bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#FF4D6D]/20 cursor-pointer transition-all"
+                    >
+                      <XCircle className="h-3 w-3" /> Reject
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -382,6 +449,105 @@ export default function Admin({ onBondingToggled }: AdminProps) {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Security Audit Logs */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between">
+          <h3 className="font-sans text-[10px] font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+            <History className="h-4 w-4 text-[#B066FF]" /> Security & Rejection Audit Log
+          </h3>
+          <button
+            type="button"
+            id="btn-refresh-audit-logs"
+            onClick={fetchAuditLogs}
+            className="text-[10px] text-[#A9A3B8] hover:text-white flex items-center gap-1 font-mono transition-colors focus:outline-none cursor-pointer"
+          >
+            <RefreshCw className={`h-3 w-3 ${loadingAudit ? 'animate-spin' : ''}`} /> Refresh Logs
+          </button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          {/* Fraud Flag Events */}
+          <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
+            <div className="flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+              <ShieldCheck className="h-4 w-4 text-[#38F8B0]" />
+              <span className="text-[11px] font-bold text-white uppercase tracking-wider font-sans">Recent Fraud Flag Events ({auditLogs.fraudLogs.length})</span>
+            </div>
+
+            {auditLogs.fraudLogs.length === 0 ? (
+              <div className="text-center py-6 text-xs text-[#A9A3B8] font-mono">No historical fraud flags in ledger.</div>
+            ) : (
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                {auditLogs.fraudLogs.map((log: any) => (
+                  <div key={log.id} className="p-2.5 rounded bg-[#05020D]/40 border border-[#A9A3B8]/5 space-y-1 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-white">@{log.username}</span>
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono font-bold uppercase ${
+                        log.status === 'pending' 
+                          ? 'bg-[#FF4D6D]/15 text-[#FF4D6D] border border-[#FF4D6D]/10' 
+                          : 'bg-[#38F8B0]/15 text-[#38F8B0] border border-[#38F8B0]/10'
+                      }`}>
+                        {log.status}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-[#A9A3B8]">
+                      Flagged on <span className="text-white font-mono">{log.campaign_title}</span>
+                    </div>
+
+                    <div className="text-[11px] text-[#A9A3B8] bg-[#05020D]/60 p-1.5 rounded border border-[#A9A3B8]/5">
+                      Reason: <strong className="text-white font-medium">{log.reason}</strong>
+                    </div>
+
+                    <div className="flex justify-between items-center text-[10px] text-[#A9A3B8]/60 font-mono pt-1 border-t border-[#A9A3B8]/5">
+                      <span>Risk: <span className="text-[#FF4D6D] font-bold">{log.risk_score}%</span></span>
+                      <span>{new Date(log.created_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Rejected Task Completions */}
+          <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
+            <div className="flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+              <FileText className="h-4 w-4 text-[#FF4D6D]" />
+              <span className="text-[11px] font-bold text-white uppercase tracking-wider font-sans">Rejected Task Completions ({auditLogs.rejectedCompletions.length})</span>
+            </div>
+
+            {auditLogs.rejectedCompletions.length === 0 ? (
+              <div className="text-center py-6 text-xs text-[#A9A3B8] font-mono">No historical task rejections recorded.</div>
+            ) : (
+              <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
+                {auditLogs.rejectedCompletions.map((log: any) => (
+                  <div key={log.id} className="p-2.5 rounded bg-[#05020D]/40 border border-[#A9A3B8]/5 space-y-1 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-white">@{log.username}</span>
+                      <span className="bg-[#FF4D6D]/10 text-[#FF4D6D] text-[9px] px-1.5 py-0.2 rounded font-mono font-bold border border-[#FF4D6D]/10">
+                        REJECTED
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-[#A9A3B8]">
+                      Campaign: <span className="text-white">{log.campaign_title}</span> ({log.action_type})
+                    </div>
+
+                    <div className="text-[11px] text-[#FF4D6D] bg-[#FF4D6D]/5 p-1.5 rounded border border-[#FF4D6D]/10">
+                      Reason: <strong className="text-white font-medium">{log.rejection_reason}</strong>
+                    </div>
+
+                    <div className="flex justify-between items-center text-[10px] text-[#A9A3B8]/60 font-mono pt-1 border-t border-[#A9A3B8]/5">
+                      <span>Risk: <span className="text-[#FF4D6D] font-bold">{log.risk_score}%</span></span>
+                      <span>{new Date(log.rejected_at).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

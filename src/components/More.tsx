@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { User, Balance } from '../types';
-import { HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen } from 'lucide-react';
+import { HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen, Trophy, Info, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 interface MoreProps {
   user: User;
@@ -15,6 +16,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [showTooltip, setShowTooltip] = useState(false);
 
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,8 +53,145 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
       });
   };
 
+  const vp = user.viral_power || 0;
+  
+  // Calculate current tier and next tier progress based on user's quality score and viral power
+  const currentTier = user.quality_score || 'New User';
+  let nextTier = 'Verified User';
+  let progressMin = 0;
+  let progressMax = 25;
+  let tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
+  
+  if (currentTier === 'Partner') {
+    nextTier = 'Max Level';
+    progressMin = 250;
+    progressMax = 250;
+    tierColor = 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5';
+  } else if (currentTier === 'Trusted User') {
+    nextTier = 'Partner';
+    progressMin = 100;
+    progressMax = 250;
+    tierColor = 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5';
+  } else if (currentTier === 'Active User') {
+    nextTier = 'Trusted User';
+    progressMin = 50;
+    progressMax = 100;
+    tierColor = 'text-[#FFD36A] border-[#FFD36A]/20 bg-[#FFD36A]/5';
+  } else if (currentTier === 'Verified User') {
+    nextTier = 'Active User';
+    progressMin = 25;
+    progressMax = 50;
+    tierColor = 'text-[#B066FF] border-[#B066FF]/20 bg-[#B066FF]/5';
+  } else if (currentTier === 'High-Risk User') {
+    nextTier = 'New User (Unflag)';
+    progressMin = 0;
+    progressMax = 25;
+    tierColor = 'text-[#FF4D6D] border-[#FF4D6D]/20 bg-[#FF4D6D]/5';
+  } else if (currentTier === 'Blocked User') {
+    nextTier = 'None';
+    progressMin = 0;
+    progressMax = 1;
+    tierColor = 'text-[#FF4D6D] border-[#FF4D6D]/20 bg-[#FF4D6D]/5';
+  } else {
+    // New User
+    nextTier = 'Verified User';
+    progressMin = 0;
+    progressMax = 25;
+    tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
+  }
+
+  const percent = progressMax === progressMin ? 100 : Math.min(100, Math.max(0, ((vp - progressMin) / (progressMax - progressMin)) * 100));
+
   return (
     <div className="space-y-4">
+      {/* 0. Quality Score Progression Bento Card */}
+      <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3 relative overflow-hidden">
+        <div className="absolute -top-12 -right-12 h-24 w-24 rounded-full bg-[#8A2BFF]/5 blur-2xl"></div>
+        
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-1.5">
+            <Trophy className="h-4 w-4 text-[#FFD36A]" />
+            <h3 className="font-sans text-xs font-bold text-white uppercase tracking-wider">
+              Ecosystem Quality Score
+            </h3>
+            <button
+              type="button"
+              id="btn-quality-score-info"
+              onClick={() => setShowTooltip(!showTooltip)}
+              className="text-[#A9A3B8] hover:text-white transition-colors cursor-pointer p-0.5 focus:outline-none"
+              aria-label="Quality Score Info"
+            >
+              <HelpCircle className="h-4 w-4" />
+            </button>
+          </div>
+          
+          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded border ${tierColor}`}>
+            {currentTier}
+          </span>
+        </div>
+
+        {/* ProgressBar */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between text-[10px] font-mono text-[#A9A3B8]">
+            <span>Reputation: {vp} VP</span>
+            {progressMax > progressMin && (
+              <span>Next level: {progressMax} VP</span>
+            )}
+          </div>
+          
+          <div className="w-full h-2 rounded bg-[#05020D]/80 border border-[#A9A3B8]/10 overflow-hidden p-0.5">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${percent}%` }}
+              transition={{ duration: 0.8, ease: "easeOut" }}
+              className="h-full rounded bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] shadow-[0_0_8px_rgba(138,43,255,0.5)]"
+            />
+          </div>
+        </div>
+
+        {/* Tooltip Card Explanation */}
+        <AnimatePresence>
+          {showTooltip && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="overflow-hidden border-t border-[#A9A3B8]/10 pt-3 mt-1.5 space-y-2 text-[11px] text-[#A9A3B8] leading-relaxed"
+            >
+              <div className="flex items-start gap-1.5 text-xs text-white font-bold">
+                <Info className="h-4 w-4 text-[#B066FF] shrink-0 mt-0.5" />
+                <span>How Quality Score impacts your profile:</span>
+              </div>
+              
+              <div className="grid gap-2.5 sm:grid-cols-3 pt-1">
+                <div className="bg-[#05020D]/40 border border-[#A9A3B8]/5 p-2 rounded space-y-1">
+                  <div className="font-bold text-white text-[10px] uppercase font-mono">1. New User (0-24 VP)</div>
+                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
+                    Basic campaign eligibility. Daily vVIRAL reward limit cap is 500. Standard audit verification delay.
+                  </p>
+                </div>
+                <div className="bg-[#8A2BFF]/5 border border-[#8A2BFF]/10 p-2 rounded space-y-1">
+                  <div className="font-bold text-[#B066FF] text-[10px] uppercase font-mono">2. Verified User (25-49 VP)</div>
+                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
+                    Daily reward limit increased to 1,000 vVIRAL. Unlocks premium websites and Telegram verification channels.
+                  </p>
+                </div>
+                <div className="bg-[#FFD36A]/5 border border-[#FFD36A]/10 p-2 rounded space-y-1">
+                  <div className="font-bold text-[#FFD36A] text-[10px] uppercase font-mono">3. Active & Trusted (50+ VP)</div>
+                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
+                    Up to 2,500 daily vVIRAL. Fast-track withdrawals, exclusive high-tier promoter tasks, and manual audit immunity.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[10px] text-[#A9A3B8]/60 italic">
+                💡 Tip: Earn +1 VP for every daily check-in streak milestone, and completing verified advertiser actions!
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
       {/* 1. Profile and Onboarding Incentives Form */}
       <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
         <h3 className="font-sans text-xs font-bold text-[#B066FF] uppercase tracking-wider flex items-center gap-1.5">

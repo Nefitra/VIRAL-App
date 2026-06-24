@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Coins, ShieldAlert, CheckCircle, ExternalLink, RefreshCw, AlertTriangle, Timer, Clock } from 'lucide-react';
 import { User, Balance } from '../types';
+import { useToast } from './Toast';
 
 interface EarnProps {
   user: User;
@@ -10,6 +11,7 @@ interface EarnProps {
 }
 
 export default function Earn({ user, balance, selectedCampaignFromDiscover, onTaskCompleted }: EarnProps) {
+  const { showToast } = useToast();
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCamp, setSelectedCamp] = useState<any | null>(null);
@@ -51,6 +53,7 @@ export default function Earn({ user, balance, selectedCampaignFromDiscover, onTa
     setVerificationResult(null);
     setErrorMsg('');
     setDwellTime(null);
+    showToast(`Task started for ${camp.resource?.title}. Complete instructions to claim ${camp.reward_per_action} vVIRAL.`, 'info', 'Task Started');
 
     // If website, simulate minimum dwell time countdown (10s)
     if (camp.campaign_type === 'website') {
@@ -73,7 +76,9 @@ export default function Earn({ user, balance, selectedCampaignFromDiscover, onTa
     
     // Website check: must complete dwell timer
     if (selectedCamp.campaign_type === 'website' && dwellTime !== null && dwellTime > 0) {
-      setErrorMsg(`Anti-bot dwell time check active: Please wait ${dwellTime}s more on website.`);
+      const remainingMsg = `Anti-bot dwell time active: Please wait ${dwellTime}s more on website.`;
+      setErrorMsg(remainingMsg);
+      showToast(remainingMsg, 'error', 'Anti-Bot Delay');
       return;
     }
 
@@ -99,8 +104,10 @@ export default function Earn({ user, balance, selectedCampaignFromDiscover, onTa
         setIsVerifying(false);
         if (data.error) {
           setErrorMsg(data.error);
+          showToast(data.error, 'error', 'Audit Rejected');
         } else {
           setVerificationResult(data);
+          showToast(`Verified action! Received +${selectedCamp.reward_per_action} vVIRAL reward successfully.`, 'reward', 'Claim Verified');
           onTaskCompleted();
           // Update local campaign list to show status changes
           fetchCampaigns();
@@ -109,6 +116,7 @@ export default function Earn({ user, balance, selectedCampaignFromDiscover, onTa
       .catch(() => {
         setIsVerifying(false);
         setErrorMsg('Network verification failed. Please try again.');
+        showToast('Ecosystem connection failed. Please try again.', 'error', 'Network Failure');
       });
   };
 

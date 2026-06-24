@@ -81,6 +81,7 @@ export interface TaskCompletion {
   created_at: string;
   approved_at?: string;
   rejected_at?: string;
+  rejection_reason?: string;
 }
 
 export interface Referral {

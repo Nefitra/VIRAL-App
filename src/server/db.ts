@@ -221,6 +221,20 @@ const INITIAL_DB: DatabaseSchema = {
       risk_score: 8,
       verification_data: 'Requested Telegram join channel @web3_builder_news',
       created_at: new Date().toISOString()
+    },
+    {
+      id: 'task-c-rejected-1',
+      campaign_id: 'camp-1',
+      user_id: 'earner-1',
+      action_type: 'website',
+      reward_amount: 45,
+      referral_reward_amount: 4.5,
+      status: 'rejected',
+      risk_score: 85,
+      verification_data: 'Skipped interactive dwell-time stay check. Tab inactive.',
+      created_at: new Date(Date.now() - 4 * 3600000).toISOString(),
+      rejected_at: new Date(Date.now() - 3.5 * 3600000).toISOString(),
+      rejection_reason: 'Automated speed-run detection: tab stay duration less than 2 seconds (minimum 15 required)'
     }
   ],
   referrals: [
@@ -299,6 +313,15 @@ const INITIAL_DB: DatabaseSchema = {
       risk_score: 65,
       status: 'pending',
       created_at: new Date().toISOString()
+    },
+    {
+      id: 'fraud-2',
+      user_id: 'earner-1',
+      campaign_id: 'camp-2',
+      reason: 'Rapid-succession task completions (possible scripting behavior)',
+      risk_score: 90,
+      status: 'resolved',
+      created_at: new Date(Date.now() - 24 * 3600000).toISOString()
     }
   ],
   config: {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Rocket, Coins, Users, ShieldAlert, Award, ArrowUpRight, Calendar, Check, AlertCircle } from 'lucide-react';
 import { User, Balance } from '../types';
+import { useToast } from './Toast';
 
 interface HomeProps {
   user: User;
@@ -11,6 +12,7 @@ interface HomeProps {
 }
 
 export default function Home({ user, balance, setActiveTab, onCheckInCompleted }: HomeProps) {
+  const { showToast } = useToast();
   const [checkinStatus, setCheckinStatus] = useState<{
     canCheckIn: boolean;
     streak: number;
@@ -56,11 +58,14 @@ export default function Home({ user, balance, setActiveTab, onCheckInCompleted }
         setClaiming(false);
         if (data.error) {
           setMessage({ type: 'error', text: data.error });
+          showToast(data.error, 'error', 'Check-In Refused');
         } else {
+          const successText = `Claimed +${data.reward} vVIRAL Daily Check-in bonus! Streak: ${data.streak} ${data.streak === 1 ? 'day' : 'days'}.`;
           setMessage({
             type: 'success',
-            text: `Claimed +${data.reward} vVIRAL Daily Check-in bonus! Streak: ${data.streak} ${data.streak === 1 ? 'day' : 'days'}.`
+            text: successText
           });
+          showToast(successText, 'reward', 'Check-In Success!');
           onCheckInCompleted(); // reload App state
           setCheckinStatus({
             canCheckIn: false,
@@ -75,6 +80,7 @@ export default function Home({ user, balance, setActiveTab, onCheckInCompleted }
         console.error('Check-in error:', err);
         setClaiming(false);
         setMessage({ type: 'error', text: 'Ecosystem server offline. Please try again.' });
+        showToast('Ecosystem server offline. Please try again.', 'error', 'Network Failure');
       });
   };
 
