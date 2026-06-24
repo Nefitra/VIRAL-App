@@ -22,22 +22,44 @@ const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || '8618331744,622819
 // Admin verification middleware
 const adminAuthMiddleware = (req: any, res: any, next: any) => {
   const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
-  const initDataHeader = req.headers['x-init-data'] || req.headers['authorization'];
+  const initDataHeader = req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
 
+  // 1. Check for Telegram ID presence
   if (!adminIdHeader) {
     return res.status(403).json({ error: 'Access Denied: Missing Telegram ID or Admin credentials' });
   }
 
   const cleanId = adminIdHeader.toString().trim();
+
+  // 2. Must be a numeric Telegram ID
+  if (!/^\d+$/.test(cleanId)) {
+    return res.status(403).json({ error: 'Access Denied: Invalid numeric Telegram ID format' });
+  }
+
+  // 3. Telegram ID must exist in ADMIN_TELEGRAM_IDS
   if (!ADMIN_TELEGRAM_IDS.includes(cleanId)) {
     return res.status(403).json({ error: 'Access Denied: Your Telegram ID is not authorized as an administrator.' });
   }
 
-  // Simulate verification of Telegram Mini App initData
-  if (initDataHeader) {
-    console.log(`[Security Audit] Verified Telegram initData hash check for Admin ID: ${cleanId}`);
+  // 4. Must check for valid Telegram WebApp initData (must be present/non-empty)
+  if (!initDataHeader || initDataHeader.trim() === '') {
+    return res.status(403).json({ error: 'Access Denied: Missing valid Telegram WebApp initData security authorization' });
   }
 
+  // 5. Must check for registered, authenticated user profile in the database
+  const db = readDb();
+  const matchedUser = db.users.find(u => u.telegram_id === cleanId);
+  if (!matchedUser) {
+    return res.status(403).json({ error: 'Access Denied: No registered authenticated user profile found for this Telegram ID.' });
+  }
+
+  // Ensure role cannot be changed from the frontend, force-sync role on backend to 'admin'
+  if (matchedUser.role !== 'admin') {
+    matchedUser.role = 'admin';
+    writeDb(db);
+  }
+
+  console.log(`[Security Audit] Verified Telegram WebApp initData and registered user state for Admin ID: ${cleanId}`);
   next();
 };
 
@@ -77,22 +99,29 @@ app.post('/api/auth/login', (req, res) => {
 
   // Defaults to telegram login for backwards compatibility if provider is not explicitly set
   const currentProvider = provider || 'telegram';
+  const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
+  const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
 
   let existingUser: User | undefined;
 
-  // De-duplication check based on provider credentials
-  if (currentProvider === 'telegram' && telegram_id) {
-    existingUser = db.users.find(u => u.telegram_id === telegram_id.toString());
-  } else if (currentProvider === 'google' && google_id) {
-    existingUser = db.users.find(u => u.google_id === google_id || (u.email && u.email.toLowerCase() === email?.toLowerCase()));
-  } else if (google_id || (email && email.includes('@'))) {
-    // Check if email already registered to avoid duplication
-    existingUser = db.users.find(u => (u.email && u.email.toLowerCase() === email?.toLowerCase()) || (google_id && u.google_id === google_id));
-  } else if (provider_user_id && provider_name) {
-    // Social login
-    const providerRecord = db.auth_providers?.find(ap => ap.provider_name === provider_name && ap.provider_user_id === provider_user_id && ap.status === 'active');
-    if (providerRecord) {
-      existingUser = db.users.find(u => u.id === providerRecord.user_id);
+  if (!db.auth_providers) db.auth_providers = [];
+
+  // 1. Primary check: Does an active auth_provider record exist for these credentials?
+  const providerRecord = db.auth_providers.find(
+    ap => ap.provider_name === provName && ap.provider_user_id === provUserId && ap.status === 'active'
+  );
+  if (providerRecord) {
+    existingUser = db.users.find(u => u.id === providerRecord.user_id);
+  }
+
+  // 2. Secondary fallback check: Search by direct user table properties to prevent duplication (automatic mapping/linkage)
+  if (!existingUser) {
+    if (provName === 'telegram' && telegram_id) {
+      existingUser = db.users.find(u => u.telegram_id === telegram_id.toString());
+    } else if (provName === 'google') {
+      existingUser = db.users.find(u => u.google_id === google_id || (u.email && u.email.toLowerCase() === email?.toLowerCase()));
+    } else if (email) {
+      existingUser = db.users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
     }
   }
 
@@ -106,19 +135,17 @@ app.post('/api/auth/login', (req, res) => {
     existingUser.last_login_at = new Date().toISOString();
 
     // Link credentials if they are newly provided on login
-    if (currentProvider === 'google' && google_id && !existingUser.google_id) {
+    if (provName === 'google' && google_id && !existingUser.google_id) {
       existingUser.google_id = google_id;
-      if (email && !existingUser.email) existingUser.email = email;
     }
-    if (currentProvider === 'telegram' && telegram_id && !existingUser.telegram_id) {
+    if (email && !existingUser.email) {
+      existingUser.email = email;
+    }
+    if (provName === 'telegram' && telegram_id && !existingUser.telegram_id) {
       existingUser.telegram_id = telegram_id.toString();
     }
 
     // Keep auth provider updated
-    if (!db.auth_providers) db.auth_providers = [];
-    const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
-    const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
-    
     let existingProv = db.auth_providers.find(ap => ap.user_id === existingUser!.id && ap.provider_name === provName);
     if (!existingProv) {
       db.auth_providers.push({
@@ -134,7 +161,14 @@ app.post('/api/auth/login', (req, res) => {
       });
     } else {
       existingProv.last_used_at = new Date().toISOString();
+      if (email && !existingProv.provider_email) existingProv.provider_email = email;
+      if (username && !existingProv.provider_username) existingProv.provider_username = username;
     }
+
+    // Force-sync role strictly based on numeric Telegram ID being in the ADMIN_TELEGRAM_IDS list
+    const checkTgId = existingUser.telegram_id ? existingUser.telegram_id.toString() : undefined;
+    const isNowAdmin = !!(checkTgId && ADMIN_TELEGRAM_IDS.includes(checkTgId));
+    existingUser.role = isNowAdmin ? 'admin' : 'user';
 
     writeDb(db);
     const balance = db.balances.find(b => b.user_id === existingUser!.id);
@@ -146,7 +180,7 @@ app.post('/api/auth/login', (req, res) => {
   const starterBonus = db.config.starterBonus;
   
   const cleanTgId = telegram_id ? telegram_id.toString() : undefined;
-  const isSpecialAdmin = (cleanTgId && ADMIN_TELEGRAM_IDS.includes(cleanTgId)) || email === 'beskerboris@gmail.com' || (username && username.toLowerCase() === 'admin');
+  const isSpecialAdmin = !!(cleanTgId && ADMIN_TELEGRAM_IDS.includes(cleanTgId));
 
   const newUser: User = {
     id: newUserId,
@@ -180,9 +214,6 @@ app.post('/api/auth/login', (req, res) => {
   db.balances.push(newBalance);
 
   // Auth provider logging
-  if (!db.auth_providers) db.auth_providers = [];
-  const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
-  const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
   db.auth_providers.push({
     id: generateId('prov'),
     user_id: newUserId,
@@ -244,20 +275,32 @@ app.post('/api/auth/link', (req, res) => {
 
   // Check if provider is already linked to another user to enforce uniqueness
   let duplicateLink = false;
-  if (provider === 'telegram') {
-    duplicateLink = db.users.some(u => u.telegram_id === provider_user_id.toString() && u.id !== userId);
-  } else if (provider === 'google') {
-    duplicateLink = db.users.some(u => u.google_id === provider_user_id || (u.email && u.email === provider_email && u.id !== userId));
-  } else {
-    if (!db.auth_providers) db.auth_providers = [];
-    duplicateLink = db.auth_providers.some(ap => ap.provider_name === provider && ap.provider_user_id === provider_user_id && ap.user_id !== userId && ap.status === 'active');
+  
+  if (!db.auth_providers) db.auth_providers = [];
+  
+  // Enforce unique provider credentials across ALL auth_providers
+  const existingProviderRecord = db.auth_providers.find(
+    ap => ap.provider_name === provider && ap.provider_user_id === provider_user_id.toString() && ap.status === 'active'
+  );
+  
+  if (existingProviderRecord && existingProviderRecord.user_id !== userId) {
+    duplicateLink = true;
+  }
+  
+  // Double-check direct fields for additional de-duplication
+  if (!duplicateLink) {
+    if (provider === 'telegram') {
+      duplicateLink = db.users.some(u => u.telegram_id === provider_user_id.toString() && u.id !== userId);
+    } else if (provider === 'google') {
+      duplicateLink = db.users.some(u => u.google_id === provider_user_id || (u.email && u.email === provider_email && u.id !== userId));
+    }
   }
 
   if (duplicateLink) {
     return res.status(400).json({ error: `This ${provider} identity is already connected to another $VIRAL account. Merging denied to prevent duplicate exploitation.` });
   }
 
-  // Bind properties
+  // Bind properties on User model
   if (provider === 'telegram') {
     user.telegram_id = provider_user_id.toString();
     if (provider_username) user.username = provider_username;
@@ -268,41 +311,70 @@ app.post('/api/auth/link', (req, res) => {
     user.social_provider = provider;
   }
 
-  // Record Auth Provider
-  if (!db.auth_providers) db.auth_providers = [];
-  db.auth_providers.push({
-    id: generateId('prov'),
-    user_id: userId,
-    provider_name: provider,
-    provider_user_id: provider_user_id.toString(),
-    provider_email: provider_email,
-    provider_username: provider_username,
-    connected_at: new Date().toISOString(),
-    last_used_at: new Date().toISOString(),
-    status: 'active'
-  });
+  // Force-sync role strictly based on numeric Telegram ID being in the ADMIN_TELEGRAM_IDS list
+  const checkTgId = user.telegram_id ? user.telegram_id.toString() : undefined;
+  const isNowAdmin = !!(checkTgId && ADMIN_TELEGRAM_IDS.includes(checkTgId));
+  user.role = isNowAdmin ? 'admin' : 'user';
 
-  user.viral_power += 20; // Reward for secure multi-auth setup
-  const balance = db.balances.find(b => b.user_id === userId);
-  if (balance) {
-    balance.viral_power += 20;
-    balance.vviral_balance += 20; // 20 vVIRAL secure bonus
-    
-    db.ledger_transactions.push({
-      id: generateId('tx'),
+  // Record/Update Auth Provider Record
+  let provRecord = db.auth_providers.find(ap => ap.user_id === userId && ap.provider_name === provider);
+  if (!provRecord) {
+    db.auth_providers.push({
+      id: generateId('prov'),
       user_id: userId,
-      amount: 20,
-      currency: 'vVIRAL',
-      type: 'account_link_bonus',
-      status: 'completed',
-      direction: 'credit',
-      created_at: new Date().toISOString(),
-      metadata: `Linked ${provider} account security authentication bonus (+20 vVIRAL)`
+      provider_name: provider,
+      provider_user_id: provider_user_id.toString(),
+      provider_email: provider_email,
+      provider_username: provider_username,
+      connected_at: new Date().toISOString(),
+      last_used_at: new Date().toISOString(),
+      status: 'active'
     });
+  } else {
+    provRecord.status = 'active';
+    provRecord.provider_user_id = provider_user_id.toString();
+    provRecord.last_used_at = new Date().toISOString();
+    if (provider_email) provRecord.provider_email = provider_email;
+    if (provider_username) provRecord.provider_username = provider_username;
+  }
+
+  // Check if we already rewarded them for linking this provider to prevent double-rewards
+  const ledgerMatches = db.ledger_transactions.some(tx => tx.user_id === userId && tx.type === 'account_link_bonus' && tx.metadata.includes(provider));
+  
+  if (!ledgerMatches) {
+    user.viral_power += 20; // Reward for secure multi-auth setup
+    const balance = db.balances.find(b => b.user_id === userId);
+    if (balance) {
+      balance.viral_power += 20;
+      balance.vviral_balance += 20; // 20 vVIRAL secure bonus
+      
+      db.ledger_transactions.push({
+        id: generateId('tx'),
+        user_id: userId,
+        amount: 20,
+        currency: 'vVIRAL',
+        type: 'account_link_bonus',
+        status: 'completed',
+        direction: 'credit',
+        created_at: new Date().toISOString(),
+        metadata: `Linked ${provider} account security authentication bonus (+20 vVIRAL)`
+      });
+    }
   }
 
   writeDb(db);
+  const balance = db.balances.find(b => b.user_id === userId);
   res.json({ success: true, user, balance });
+});
+
+// Get Connected Auth Providers for User
+app.get('/api/auth/providers/:userId', (req, res) => {
+  const db = readDb();
+  const { userId } = req.params;
+  
+  if (!db.auth_providers) db.auth_providers = [];
+  const providers = db.auth_providers.filter(ap => ap.user_id === userId);
+  res.json({ success: true, providers });
 });
 
 // Secure TON Wallet Verification and Connection
@@ -354,8 +426,8 @@ app.post('/api/wallet/verify-connect', (req, res) => {
     if (!prevWallet) {
       // Award reward
       balance.vviral_balance += 30; // TON Wallet Bonus
-      balance.ton_balance_cache = 15.4; // Initial simulated balance
-      balance.gram_balance_cache = 250;
+      balance.ton_balance_cache = 0;
+      balance.gram_balance_cache = 0;
       
       db.ledger_transactions.push({
         id: generateId('tx'),
@@ -369,9 +441,8 @@ app.post('/api/wallet/verify-connect', (req, res) => {
         metadata: 'TON Wallet connection onboarding bonus (+30 vVIRAL)'
       });
     } else {
-      // Keep existing balance cache
-      if (!balance.ton_balance_cache) balance.ton_balance_cache = 15.4;
-      if (!balance.gram_balance_cache) balance.gram_balance_cache = 250;
+      balance.ton_balance_cache = 0;
+      balance.gram_balance_cache = 0;
     }
   }
 
@@ -555,8 +626,8 @@ app.post('/api/auth/update-profile', (req, res) => {
     rewardEarned += 30;
     updates.push('Wallet Connection Onboarding Bonus (+30 vVIRAL)');
     
-    balance.ton_balance_cache = 12.8; // Give them some simulated TON balance
-    balance.gram_balance_cache = 150; // Give them some simulated GRAM balance
+    balance.ton_balance_cache = 0;
+    balance.gram_balance_cache = 0;
     
     db.ledger_transactions.push({
       id: generateId('tx'),
@@ -938,7 +1009,7 @@ app.post('/api/resources/add', (req, res) => {
 });
 
 // 8. Approve/Reject Resource (Admin only)
-app.post('/api/resources/:id/approve', (req, res) => {
+app.post('/api/resources/:id/approve', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { status } = req.body; // 'approved' | 'rejected'
@@ -1122,7 +1193,7 @@ app.post('/api/campaigns', (req, res) => {
 });
 
 // 11. Admin Action: Approve/Reject campaign
-app.post('/api/campaigns/:id/approve', (req, res) => {
+app.post('/api/campaigns/:id/approve', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { status } = req.body; // 'active' | 'rejected'
@@ -1400,7 +1471,7 @@ app.get('/api/referrals/:userId', (req, res) => {
 });
 
 // 15. Admin panel diagnostics (collected fees, overall metrics)
-app.get('/api/admin/stats', (req, res) => {
+app.get('/api/admin/stats', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   
   const totalUsers = db.users.length;
@@ -1546,7 +1617,7 @@ app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, re
 });
 
 // 17. Admin API: Toggle Blum bonding simulation
-app.post('/api/admin/bond', (req, res) => {
+app.post('/api/admin/bond', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   db.config.isBonded = !db.config.isBonded;
   

@@ -37,7 +37,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const adminFetch = (url: string, options: any = {}) => {
     const headers = {
       ...(options.headers || {}),
-      'x-telegram-id': user.telegram_id || '8618331744',
+      'x-telegram-id': user.telegram_id || '',
       'x-init-data': 'simulated_admin_init_data'
     };
     return fetch(url, { ...options, headers });
@@ -158,6 +158,23 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
       .then(() => fetchAdminData())
       .catch(err => console.error(err));
   };
+
+  const ADMIN_TELEGRAM_IDS = ['8618331744', '6228196481', '5314622858'];
+  const hasAdminAccess = user.role === 'admin' && user.telegram_id && ADMIN_TELEGRAM_IDS.includes(user.telegram_id.toString());
+
+  if (!hasAdminAccess) {
+    return (
+      <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#FF4D6D]/20 bg-[#0B0618] p-6 space-y-4 text-center">
+        <div className="h-12 w-12 rounded-full bg-[#FF4D6D]/10 flex items-center justify-center text-[#FF4D6D] mx-auto">
+          <ShieldAlert className="h-6 w-6" />
+        </div>
+        <h3 className="font-sans text-base font-bold text-white">403 Access Denied</h3>
+        <p className="text-xs text-[#A9A3B8] leading-relaxed">
+          Your account is not authorized as an administrator. Only pre-configured numeric Telegram IDs have permission to view or manage platform settings.
+        </p>
+      </div>
+    );
+  }
 
   if (loading) {
     return <div className="text-xs text-[#A9A3B8] font-mono">Loading core administrator dashboard...</div>;

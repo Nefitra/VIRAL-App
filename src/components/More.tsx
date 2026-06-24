@@ -27,6 +27,24 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
   const [successMsg, setSuccessMsg] = useState('');
   const [showTooltip, setShowTooltip] = useState(false);
 
+  const [connectedProviders, setConnectedProviders] = useState<any[]>([]);
+
+  const fetchProviders = () => {
+    if (!user.id) return;
+    fetch(`/api/auth/providers/${user.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setConnectedProviders(data.providers || []);
+        }
+      })
+      .catch(err => console.error('Error fetching auth providers:', err));
+  };
+
+  React.useEffect(() => {
+    fetchProviders();
+  }, [user.id]);
+
   // New FAQ component handles its own search, category, and accordion state internally.
 
   // Interactive Checklist states for Launch Roadmap
@@ -538,15 +556,19 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
 
                     {/* Live Balances Displays */}
                     <div className="grid grid-cols-3 gap-2 pt-1 text-center">
-                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5">
+                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
                         <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">TON BALANCE</span>
-                        <span className="text-xs text-white font-bold font-mono">{(balance.ton_balance_cache || 15.4).toFixed(2)} TON</span>
+                        <span className="text-[10px] text-gray-500 font-bold font-mono">
+                          {user.wallet_address ? 'Data unavailable' : 'Connect wallet to view real balance'}
+                        </span>
                       </div>
-                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5">
+                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
                         <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">GRAM BALANCE</span>
-                        <span className="text-xs text-[#38F8B0] font-bold font-mono">{balance.gram_balance_cache || 250} GRAM</span>
+                        <span className="text-[10px] text-gray-500 font-bold font-mono">
+                          {user.wallet_address ? 'Data unavailable' : 'Connect wallet to view real balance'}
+                        </span>
                       </div>
-                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5">
+                      <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
                         <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">vVIRAL BALANCE</span>
                         <span className="text-xs text-[#FFD36A] font-bold font-mono">{balance.vviral_balance.toLocaleString()}</span>
                       </div>
@@ -686,6 +708,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                               alert(data.error);
                             } else {
                               onProfileUpdated();
+                              fetchProviders();
                               alert('Simulated Telegram Account linked successfully! +20 vVIRAL granted.');
                             }
                           })
@@ -737,6 +760,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                               alert(data.error);
                             } else {
                               onProfileUpdated();
+                              fetchProviders();
                               alert('Simulated Google Account linked successfully! +20 vVIRAL granted.');
                             }
                           })
@@ -750,7 +774,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                 </div>
 
                 {/* Other Social linking platforms */}
-                <div className="flex flex-col gap-1.5 pt-1.5">
+                <div className="flex flex-col gap-1.5 pt-1.5 border-b border-[#A9A3B8]/5 pb-2">
                   <span className="text-[8px] font-mono tracking-wider text-[#A9A3B8] uppercase block">Future Social Integrations</span>
                   <div className="flex flex-wrap gap-1.5">
                     {['Twitter (X)', 'Apple ID', 'Discord', 'Facebook'].map((soc) => (
@@ -779,6 +803,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                                 alert(data.error);
                               } else {
                                 onProfileUpdated();
+                                fetchProviders();
                                 alert(`Success! Simulated link with ${soc} connected to secure DB profiles. +20 vVIRAL secure bonus granted.`);
                               }
                             })
@@ -791,6 +816,24 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
                     ))}
                   </div>
                 </div>
+
+                {/* Active Connected Providers List */}
+                {connectedProviders.length > 0 && (
+                  <div className="bg-[#05020D]/60 rounded-lg p-2.5 border border-[#A9A3B8]/10 space-y-1.5 mt-2">
+                    <span className="text-[8px] font-mono tracking-wider text-[#FFD36A] uppercase block">Linked Providers (auth_providers table)</span>
+                    <div className="space-y-1">
+                      {connectedProviders.map((prov) => (
+                        <div key={prov.id} className="flex items-center justify-between text-[9px] bg-[#05020D]/80 rounded px-2 py-1 font-mono">
+                          <div className="flex items-center gap-1.5 text-white">
+                            <span className="capitalize text-[#B066FF] font-bold">{prov.provider_name}:</span>
+                            <span>{prov.provider_username || prov.provider_email || prov.provider_user_id}</span>
+                          </div>
+                          <span className="text-[7px] text-[#A9A3B8]">ID: {prov.provider_user_id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -24,13 +24,15 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<string>('home');
   const [selectedCampaignFromDiscover, setSelectedCampaignFromDiscover] = useState<any | null>(null);
   
-  // Custom Telegram login simulation form
+  // Multi-Login Authentication States
+  const [loginMethod, setLoginMethod] = useState<'telegram' | 'google'>('telegram');
   const [mockTgId, setMockTgId] = useState('11223344');
   const [mockUsername, setMockUsername] = useState('TON_Sniper');
-  const [mockEmail, setMockEmail] = useState('');
+  const [googleEmail, setGoogleEmail] = useState('crypto_grinder@example.com');
+  const [googleSubId, setGoogleSubId] = useState('google_sub_12345');
   const [authError, setAuthError] = useState('');
 
-  // Initial fetch for the default earner user session to make it work out of the box
+  // Initial fetch for the default session
   useEffect(() => {
     handleLoginSimulation('11223344', 'TON_Sniper', undefined, true);
   }, []);
@@ -50,14 +52,53 @@ function MainApp() {
       .then(data => {
         if (data.error) {
           setAuthError(data.error);
-          showToast(data.error, 'error', 'Simulation Error');
+          showToast(data.error, 'error', 'Error');
         } else {
           setCurrentUser(data.user);
           setCurrentBalance(data.balance);
           setActiveTab('home');
           if (!isSilent) {
-            showToast(`Switched simulation session to @${username}`, 'success', 'Session Synced');
+            showToast(`Switched session to @${username}`, 'success', 'Session Synced');
           }
+        }
+      })
+      .catch(err => {
+        console.error('Login error:', err);
+        setAuthError('Ecosystem server offline. Please compile and try again.');
+        showToast('Ecosystem server offline.', 'error', 'Network Failure');
+      });
+  };
+
+  const handleAuthSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError('');
+
+    const payload = loginMethod === 'telegram' ? {
+      provider: 'telegram',
+      telegram_id: mockTgId,
+      username: mockUsername
+    } : {
+      provider: 'google',
+      google_id: googleSubId,
+      email: googleEmail,
+      username: googleEmail.split('@')[0]
+    };
+
+    fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setAuthError(data.error);
+          showToast(data.error, 'error', 'Authentication Error');
+        } else {
+          setCurrentUser(data.user);
+          setCurrentBalance(data.balance);
+          setActiveTab('home');
+          showToast(`Logged in successfully as @${data.user.username}`, 'success', 'Ecosystem Authenticated');
         }
       })
       .catch(err => {
@@ -114,45 +155,11 @@ function MainApp() {
             </div>
           </div>
 
-          {/* Simulated Account Selector (Allows full mutual-testing flow!) */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="text-[9px] font-mono text-[#A9A3B8] uppercase tracking-wider">Switch Persona:</span>
-            
-            <button
-              id="app-switch-earner"
-              onClick={() => handleLoginSimulation('11223344', 'TON_Sniper')}
-              className={`rounded px-2 py-1 text-[9px] font-bold border transition-all cursor-pointer ${
-                currentUser?.username === 'TON_Sniper' 
-                  ? 'bg-[#8A2BFF]/20 border-[#8A2BFF] text-[#B066FF]' 
-                  : 'bg-[#05020D]/60 border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white'
-              }`}
-            >
-              TON Sniper (Earner)
-            </button>
-
-            <button
-              id="app-switch-promoter"
-              onClick={() => handleLoginSimulation('87654321', 'Web3Builder')}
-              className={`rounded px-2 py-1 text-[9px] font-bold border transition-all cursor-pointer ${
-                currentUser?.username === 'Web3Builder' 
-                  ? 'bg-[#8A2BFF]/20 border-[#8A2BFF] text-[#B066FF]' 
-                  : 'bg-[#05020D]/60 border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white'
-              }`}
-            >
-              Web3 Builder (Promoter)
-            </button>
-
-            <button
-              id="app-switch-admin"
-              onClick={() => handleLoginSimulation('12345678', 'viral_creator', 'beskerboris@gmail.com')}
-              className={`rounded px-2 py-1 text-[9px] font-bold border transition-all cursor-pointer ${
-                currentUser?.role === 'admin' 
-                  ? 'bg-[#FFD36A]/20 border-[#FFD36A] text-[#FFD36A]' 
-                  : 'bg-[#05020D]/60 border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white'
-              }`}
-            >
-              Creator Admin (Owner)
-            </button>
+          {/* Live Protocol Status Indicator */}
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-mono font-bold bg-[#38F8B0]/10 border border-[#38F8B0]/20 text-[#38F8B0] px-2 py-0.5 rounded uppercase tracking-wider">
+              ● Live Protocol Active
+            </span>
           </div>
         </div>
       </header>
@@ -244,7 +251,7 @@ function MainApp() {
               />
             )}
 
-            {activeTab === 'admin' && currentUser.role === 'admin' && (
+            {activeTab === 'admin' && (
               <Admin 
                 user={currentUser}
                 onBondingToggled={reloadUserAndBalance} 
@@ -254,41 +261,101 @@ function MainApp() {
         ) : (
           /* Setup profile fallback screen */
           <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#A9A3B8]/10 bg-[#0B0618] p-6 space-y-5 text-center">
-            <div className="h-12 w-12 rounded-full bg-[#FF4D6D]/10 flex items-center justify-center text-[#FF4D6D] mx-auto">
+            <div className="h-12 w-12 rounded-full bg-[#8A2BFF]/10 flex items-center justify-center text-[#B066FF] mx-auto">
               <LogIn className="h-6 w-6" />
             </div>
             
             <div className="space-y-1.5">
               <h3 className="font-sans text-base font-bold text-white">Join the Promotion Ecosystem</h3>
               <p className="text-xs text-[#A9A3B8] leading-relaxed">
-                Connect your simulated Telegram profile below to receive your 100 vVIRAL starter reward!
+                Connect your account to access our decentralized platform. New users receive a 100 vVIRAL starter reward!
               </p>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handleLoginSimulation(mockTgId, mockUsername, mockEmail); }} className="space-y-3.5 text-left">
-              <div>
-                <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram username</label>
-                <input
-                  id="app-login-username"
-                  type="text"
-                  placeholder="e.g. TON_Sniper"
-                  value={mockUsername}
-                  onChange={(e) => setMockUsername(e.target.value)}
-                  className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                />
-              </div>
+            {/* Tab Selection */}
+            <div className="flex rounded-lg bg-[#05020D] p-1 border border-[#A9A3B8]/10">
+              <button
+                type="button"
+                onClick={() => { setLoginMethod('telegram'); setAuthError(''); }}
+                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  loginMethod === 'telegram' 
+                    ? 'bg-[#8A2BFF] text-white' 
+                    : 'text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Telegram Mini App
+              </button>
+              <button
+                type="button"
+                onClick={() => { setLoginMethod('google'); setAuthError(''); }}
+                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
+                  loginMethod === 'google' 
+                    ? 'bg-[#8A2BFF] text-white' 
+                    : 'text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Google Portal
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram ID</label>
-                <input
-                  id="app-login-tgid"
-                  type="text"
-                  placeholder="e.g. 11223344"
-                  value={mockTgId}
-                  onChange={(e) => setMockTgId(e.target.value)}
-                  className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                />
-              </div>
+            <form onSubmit={handleAuthSubmit} className="space-y-3.5 text-left">
+              {loginMethod === 'telegram' ? (
+                <>
+                  <div>
+                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram username</label>
+                    <input
+                      id="app-login-username"
+                      type="text"
+                      placeholder="e.g. TON_Sniper"
+                      value={mockUsername}
+                      onChange={(e) => setMockUsername(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram Numeric ID</label>
+                    <input
+                      id="app-login-tgid"
+                      type="text"
+                      placeholder="e.g. 11223344"
+                      value={mockTgId}
+                      onChange={(e) => setMockTgId(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Google Email Address</label>
+                    <input
+                      id="app-login-email"
+                      type="email"
+                      placeholder="e.g. user@gmail.com"
+                      value={googleEmail}
+                      onChange={(e) => setGoogleEmail(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Google Account ID (sub)</label>
+                    <input
+                      id="app-login-googlesub"
+                      type="text"
+                      placeholder="e.g. google_sub_12345"
+                      value={googleSubId}
+                      onChange={(e) => setGoogleSubId(e.target.value)}
+                      required
+                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                    />
+                  </div>
+                </>
+              )}
 
               {authError && <div className="text-xs text-[#FF4D6D] bg-[#FF4D6D]/10 border border-[#FF4D6D]/20 p-2.5 rounded-lg">{authError}</div>}
 
@@ -297,7 +364,7 @@ function MainApp() {
                 type="submit"
                 className="w-full rounded-xl bg-[#8A2BFF] hover:bg-[#B066FF] text-xs font-semibold py-3.5 text-white cursor-pointer"
               >
-                Launch Ecosystem App
+                Authenticate Ecosystem Account
               </button>
             </form>
           </div>
@@ -386,7 +453,7 @@ function MainApp() {
               <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">More</span>
             </button>
 
-            {currentUser.role === 'admin' && (
+            {currentUser.role === 'admin' && currentUser.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(currentUser.telegram_id.toString()) && (
               <button
                 id="app-tab-admin"
                 onClick={() => { setActiveTab('admin'); setSelectedCampaignFromDiscover(null); }}

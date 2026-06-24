@@ -28,7 +28,7 @@ const INITIAL_DB: DatabaseSchema = {
   users: [
     {
       id: 'admin-1',
-      telegram_id: '12345678',
+      telegram_id: '8618331744',
       email: 'beskerboris@gmail.com',
       username: 'viral_creator',
       wallet_address: 'EQA_VIRAL_Creator_wallet_address_xyz',
@@ -73,8 +73,8 @@ const INITIAL_DB: DatabaseSchema = {
       vviral_pending: 0,
       viral_power: 1000,
       real_viral_balance: 200000000, // Project reserve of 200M $VIRAL
-      ton_balance_cache: 1540.5,
-      gram_balance_cache: 45000,
+      ton_balance_cache: 0,
+      gram_balance_cache: 0,
       updated_at: new Date().toISOString()
     },
     {
@@ -83,8 +83,8 @@ const INITIAL_DB: DatabaseSchema = {
       vviral_pending: 0,
       viral_power: 250,
       real_viral_balance: 0,
-      ton_balance_cache: 250.0,
-      gram_balance_cache: 1200,
+      ton_balance_cache: 0,
+      gram_balance_cache: 0,
       updated_at: new Date().toISOString()
     },
     {
@@ -93,7 +93,7 @@ const INITIAL_DB: DatabaseSchema = {
       vviral_pending: 120,
       viral_power: 80,
       real_viral_balance: 0,
-      ton_balance_cache: 12.5,
+      ton_balance_cache: 0,
       gram_balance_cache: 0,
       updated_at: new Date().toISOString()
     }
