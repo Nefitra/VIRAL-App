@@ -6,7 +6,7 @@ import {
   CheckSquare, Square, CheckCircle2, AlertCircle, Plus, Minus, Search, ChevronDown, ChevronUp, ArrowRight, RefreshCw
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { faqCategories } from '../data/faqData';
+import FAQ from './FAQ';
 import { roadmapSections } from '../data/launchRoadmapData';
 
 interface MoreProps {
@@ -27,10 +27,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
   const [successMsg, setSuccessMsg] = useState('');
   const [showTooltip, setShowTooltip] = useState(false);
 
-  // FAQ search and categories
-  const [faqSearch, setFaqSearch] = useState('');
-  const [selectedFaqCategory, setSelectedFaqCategory] = useState<string>('All');
-  const [expandedFaqs, setExpandedFaqs] = useState<Record<number, boolean>>({});
+  // New FAQ component handles its own search, category, and accordion state internally.
 
   // Interactive Checklist states for Launch Roadmap
   const [checklistStates, setChecklistStates] = useState<Record<string, 'required' | 'configured' | 'pending'>>(() => {
@@ -173,9 +170,7 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
     }
   };
 
-  const toggleFaq = (id: number) => {
-    setExpandedFaqs(prev => ({ ...prev, [id]: !prev[id] }));
-  };
+
 
   return (
     <div className="space-y-4">
@@ -853,172 +848,8 @@ export default function More({ user, balance, onProfileUpdated }: MoreProps) {
             transition={{ duration: 0.15 }}
             className="space-y-4"
           >
-            {/* Visual Feedback Loop Flowchart */}
-            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4 relative overflow-hidden">
-              <div className="absolute -top-12 -right-12 h-24 w-24 rounded-full bg-[#38F8B0]/5 blur-2xl"></div>
-              
-              <div className="flex items-center gap-1.5">
-                <Zap className="h-4 w-4 text-[#38F8B0]" />
-                <h3 className="font-sans text-xs font-bold text-white uppercase tracking-wider">
-                  The $VIRAL Ecosystem Engine Loop
-                </h3>
-              </div>
-
-              <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
-                $VIRAL connects advertisers directly with real community members through secure smart contract logic.
-              </p>
-
-              {/* Loop Flow Map (Anti AI-Slop, visually polished) */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-2.5 pt-2 text-center items-center">
-                <div className="bg-[#05020D]/60 border border-[#8A2BFF]/30 p-2.5 rounded-lg">
-                  <span className="text-[9px] font-mono text-[#B066FF] block font-bold">1. SPEND</span>
-                  <p className="text-[9px] text-[#A9A3B8] mt-1 leading-normal">
-                    Promoters spend $VIRAL to fuel launch campaigns
-                  </p>
-                </div>
-                
-                <div className="hidden md:flex justify-center text-[#A9A3B8]/40">
-                  <ArrowRight className="h-4 w-4 animate-pulse" />
-                </div>
-
-                <div className="bg-[#05020D]/60 border border-[#FFD36A]/30 p-2.5 rounded-lg">
-                  <span className="text-[9px] font-mono text-[#FFD36A] block font-bold">2. ESCROW SECURED</span>
-                  <p className="text-[9px] text-[#A9A3B8] mt-1 leading-normal">
-                    Campaign budget locked in escrow to protect assets
-                  </p>
-                </div>
-
-                <div className="hidden md:flex justify-center text-[#A9A3B8]/40">
-                  <ArrowRight className="h-4 w-4 animate-pulse" />
-                </div>
-
-                <div className="bg-[#05020D]/60 border border-[#38F8B0]/30 p-2.5 rounded-lg">
-                  <span className="text-[9px] font-mono text-[#38F8B0] block font-bold">3. COMPLETE & EARN</span>
-                  <p className="text-[9px] text-[#A9A3B8] mt-1 leading-normal">
-                    Users complete verified actions & split the reward
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-[#38F8B0]/5 border border-[#38F8B0]/20 flex items-start gap-2 text-[10px] text-emerald-200/90">
-                <Sparkles className="h-3.5 w-3.5 text-[#38F8B0] shrink-0 mt-0.5" />
-                <div>
-                  <strong>Split breakdown:</strong> Earner gets <strong>80%</strong> of the task payout, Invited Referrer receives <strong>10%</strong>, and the platform Fee Wallet (<code>VIRAL_Fee_wallet</code>) receives a <strong>10%</strong> campaign turnover fee.
-                </div>
-              </div>
-            </div>
-
-            {/* Search and Category Filters */}
-            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-3 flex flex-col md:flex-row gap-3">
-              {/* Search input */}
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#A9A3B8]/60" />
-                <input
-                  id="faq-search-input"
-                  type="text"
-                  placeholder="Search FAQ by keyword (e.g. escrow, referral, wallet)..."
-                  value={faqSearch}
-                  onChange={(e) => setFaqSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-xs bg-[#05020D] text-white rounded-lg border border-[#A9A3B8]/10 focus:border-[#8A2BFF] focus:outline-none"
-                />
-              </div>
-
-              {/* Category selector */}
-              <div className="flex flex-wrap gap-1 shrink-0">
-                {['All', 'Platform Basics', 'Promotion & Campaigns', 'Tokens & Rewards', 'Wallets, Fees & Settings'].map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setSelectedFaqCategory(cat)}
-                    className={`px-2.5 py-1.5 text-[9px] font-bold font-mono uppercase tracking-wide rounded-md border transition-all cursor-pointer ${
-                      selectedFaqCategory === cat
-                        ? 'bg-[#8A2BFF] border-[#8A2BFF] text-white shadow-[0_0_8px_rgba(138,43,255,0.3)]'
-                        : 'bg-[#05020D] border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* FAQ Accordion List */}
-            <div className="space-y-2">
-              {(() => {
-                // Filter the categories and items based on search and selected category
-                const filteredCategories = faqCategories
-                  .map(catGroup => {
-                    if (selectedFaqCategory !== 'All' && catGroup.category !== selectedFaqCategory) {
-                      return null;
-                    }
-                    const filteredItems = catGroup.items.filter(item => 
-                      item.question.toLowerCase().includes(faqSearch.toLowerCase()) || 
-                      item.answer.toLowerCase().includes(faqSearch.toLowerCase())
-                    );
-                    return filteredItems.length > 0 ? { ...catGroup, items: filteredItems } : null;
-                  })
-                  .filter((cat): cat is typeof faqCategories[0] => cat !== null);
-
-                if (filteredCategories.length === 0) {
-                  return (
-                    <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-8 text-center text-xs text-[#A9A3B8]">
-                      No frequently asked questions match your query. Try a different search keyword.
-                    </div>
-                  );
-                }
-
-                return filteredCategories.map((catGroup) => (
-                  <div key={catGroup.category} className="space-y-2">
-                    <h4 className="text-[9px] font-bold font-mono text-[#B066FF] uppercase tracking-wider px-1 pt-1.5 flex items-center gap-1">
-                      <span className="h-1 w-1 bg-[#B066FF] rounded-full"></span> {catGroup.category}
-                    </h4>
-
-                    <div className="grid gap-2">
-                      {catGroup.items.map((item) => {
-                        const isExpanded = !!expandedFaqs[item.id];
-                        return (
-                          <div 
-                            key={item.id}
-                            className={`rounded-xl border transition-all ${
-                              isExpanded 
-                                ? 'bg-[#0B0618]/90 border-[#8A2BFF]/30 shadow-[0_4px_16px_rgba(138,43,255,0.05)]' 
-                                : 'bg-[#0B0618]/50 border-[#A9A3B8]/10 hover:border-[#A9A3B8]/20'
-                            }`}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleFaq(item.id)}
-                              className="w-full text-left p-3.5 flex items-start justify-between gap-3 cursor-pointer focus:outline-none"
-                            >
-                              <span className="text-xs font-bold text-white leading-relaxed">
-                                {item.id}. {item.question}
-                              </span>
-                              <span className="p-0.5 shrink-0 bg-[#05020D]/60 rounded-full border border-[#A9A3B8]/5 text-[#A9A3B8]">
-                                {isExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                              </span>
-                            </button>
-
-                            <AnimatePresence>
-                              {isExpanded && (
-                                <motion.div
-                                  initial={{ height: 0, opacity: 0 }}
-                                  animate={{ height: "auto", opacity: 1 }}
-                                  exit={{ height: 0, opacity: 0 }}
-                                  className="overflow-hidden"
-                                >
-                                  <div className="px-4 pb-4 pt-1 text-[11px] text-[#A9A3B8] leading-relaxed border-t border-[#A9A3B8]/5">
-                                    {item.answer}
-                                  </div>
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
+            {/* Dedicated High-Density FAQ Component */}
+            <FAQ />
           </motion.div>
         )}
 
