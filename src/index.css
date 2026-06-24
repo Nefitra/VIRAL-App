@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+body {
+  background-color: #05020D;
+  color: white;
+}
+
+/* High Density Theme Custom Utilities */
+.glass {
+  background: rgba(11, 6, 24, 0.8);
+  border: 1px solid rgba(138, 43, 255, 0.2);
+  backdrop-filter: blur(10px);
+}
+
+.neon-border {
+  border: 1px solid rgba(138, 43, 255, 0.5);
+  box-shadow: 0 0 15px rgba(138, 43, 255, 0.2);
+}
+
+.purple-gradient {
+  background: linear-gradient(135deg, #8A2BFF 0%, #B066FF 100%);
+}
+
+.stat-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #A9A3B8;
+}
+
+.gold-text {
+  color: #FFD36A;
+}
+
+/* Custom scrollbar to keep layout high-density and compact */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #05020D;
+}
+::-webkit-scrollbar-thumb {
+  background: #1A142E;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8A2BFF;
+}
+

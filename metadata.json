@@ -1,0 +1,6 @@
+{
+  "name": "VIRAL Promotion Ecosystem",
+  "description": "A Web3 mutual promotion ecosystem fueled by the $VIRAL token where users can promote digital resources, complete verified tasks, earn rewards, and grow together.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
