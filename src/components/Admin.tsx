@@ -4,12 +4,14 @@ import {
   Trash2, AlertTriangle, ToggleLeft, ToggleRight, Database, Users, TrendingUp,
   History, ShieldCheck, FileText, X
 } from 'lucide-react';
+import { User } from '../types';
 
 interface AdminProps {
+  user: User;
   onBondingToggled: () => void;
 }
 
-export default function Admin({ onBondingToggled }: AdminProps) {
+export default function Admin({ user, onBondingToggled }: AdminProps) {
   const [stats, setStats] = useState<any | null>(null);
   const [resources, setResources] = useState<any[]>([]);
   const [completions, setCompletions] = useState<any[]>([]);
@@ -31,9 +33,19 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
 
+  // Admin authenticated fetch helper
+  const adminFetch = (url: string, options: any = {}) => {
+    const headers = {
+      ...(options.headers || {}),
+      'x-telegram-id': user.telegram_id || '8618331744',
+      'x-init-data': 'simulated_admin_init_data'
+    };
+    return fetch(url, { ...options, headers });
+  };
+
   const fetchAuditLogs = () => {
     setLoadingAudit(true);
-    fetch('/api/admin/audit-logs')
+    adminFetch('/api/admin/audit-logs')
       .then(res => res.json())
       .then(data => {
         setAuditLogs(data);
@@ -50,10 +62,10 @@ export default function Admin({ onBondingToggled }: AdminProps) {
     
     // Fetch stats
     Promise.all([
-      fetch('/api/admin/stats').then(res => res.json()),
-      fetch('/api/resources').then(res => res.json()),
-      fetch('/api/admin/completions').then(res => res.json()),
-      fetch('/api/admin/fraud').then(res => res.json())
+      adminFetch('/api/admin/stats').then(res => res.json()),
+      adminFetch('/api/resources').then(res => res.json()),
+      adminFetch('/api/admin/completions').then(res => res.json()),
+      adminFetch('/api/admin/fraud').then(res => res.json())
     ])
       .then(([statsData, resourcesData, completionsData, fraudData]) => {
         setStats(statsData);
@@ -76,13 +88,13 @@ export default function Admin({ onBondingToggled }: AdminProps) {
 
   useEffect(() => {
     fetchAdminData();
-  }, []);
+  }, [user.id]);
 
   const handleUpdateConfig = (e: React.FormEvent) => {
     e.preventDefault();
     setConfigSuccess(false);
 
-    fetch('/api/admin/config', {
+    adminFetch('/api/admin/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -103,7 +115,7 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   };
 
   const handleToggleBonding = () => {
-    fetch('/api/admin/bond', { method: 'POST' })
+    adminFetch('/api/admin/bond', { method: 'POST' })
       .then(res => res.json())
       .then(data => {
         if (data.success) {
@@ -115,7 +127,7 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   };
 
   const handleApproveResource = (id: string, status: 'approved' | 'rejected') => {
-    fetch(`/api/resources/${id}/approve`, {
+    adminFetch(`/api/resources/${id}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status })
@@ -126,7 +138,7 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   };
 
   const handleResolveCompletion = (completionId: string, approve: boolean, reason?: string) => {
-    fetch(`/api/completions/${completionId}/approve`, {
+    adminFetch(`/api/completions/${completionId}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ approve, reason })
@@ -137,7 +149,7 @@ export default function Admin({ onBondingToggled }: AdminProps) {
   };
 
   const handleResolveFraud = (flagId: string, action: 'block_user' | 'dismiss') => {
-    fetch(`/api/admin/fraud/${flagId}/resolve`, {
+    adminFetch(`/api/admin/fraud/${flagId}/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action })

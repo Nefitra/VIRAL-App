@@ -3,7 +3,7 @@ import path from 'path';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, FeeWallet, 
-  Claim, FraudFlag, AppConfig 
+  Claim, FraudFlag, AppConfig, AuthProvider
 } from '../types';
 
 export interface DatabaseSchema {
@@ -19,6 +19,7 @@ export interface DatabaseSchema {
   claims: Claim[];
   fraud_flags: FraudFlag[];
   config: AppConfig;
+  auth_providers: AuthProvider[];
 }
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
@@ -332,7 +333,39 @@ const INITIAL_DB: DatabaseSchema = {
     monthlyRewardLimit: 20000,
     claimPoolSize: 200000000, // Fixed claim pool of 200,000,000 Real $VIRAL
     isBonded: false
-  }
+  },
+  auth_providers: [
+    {
+      id: 'prov-admin-tg',
+      user_id: 'admin-1',
+      provider_name: 'telegram',
+      provider_user_id: '12345678',
+      provider_username: 'viral_creator',
+      connected_at: new Date('2026-06-01T00:00:00.000Z').toISOString(),
+      last_used_at: new Date().toISOString(),
+      status: 'active'
+    },
+    {
+      id: 'prov-admin-gg',
+      user_id: 'admin-1',
+      provider_name: 'google',
+      provider_user_id: 'google-admin-sub-999',
+      provider_email: 'beskerboris@gmail.com',
+      connected_at: new Date('2026-06-01T01:00:00.000Z').toISOString(),
+      last_used_at: new Date().toISOString(),
+      status: 'active'
+    },
+    {
+      id: 'prov-promoter-tg',
+      user_id: 'promoter-1',
+      provider_name: 'telegram',
+      provider_user_id: '87654321',
+      provider_username: 'Web3Builder',
+      connected_at: new Date('2026-06-10T00:00:00.000Z').toISOString(),
+      last_used_at: new Date().toISOString(),
+      status: 'active'
+    }
+  ]
 };
 
 export function readDb(): DatabaseSchema {

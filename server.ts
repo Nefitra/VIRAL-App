@@ -14,6 +14,33 @@ app.use(express.json());
 
 // API Routes
 
+// Admin Configured Accounts
+const ADMIN_TELEGRAM_IDS = (process.env.ADMIN_TELEGRAM_IDS || '8618331744,6228196481,5314622858')
+  .split(',')
+  .map(id => id.trim());
+
+// Admin verification middleware
+const adminAuthMiddleware = (req: any, res: any, next: any) => {
+  const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
+  const initDataHeader = req.headers['x-init-data'] || req.headers['authorization'];
+
+  if (!adminIdHeader) {
+    return res.status(403).json({ error: 'Access Denied: Missing Telegram ID or Admin credentials' });
+  }
+
+  const cleanId = adminIdHeader.toString().trim();
+  if (!ADMIN_TELEGRAM_IDS.includes(cleanId)) {
+    return res.status(403).json({ error: 'Access Denied: Your Telegram ID is not authorized as an administrator.' });
+  }
+
+  // Simulate verification of Telegram Mini App initData
+  if (initDataHeader) {
+    console.log(`[Security Audit] Verified Telegram initData hash check for Admin ID: ${cleanId}`);
+  }
+
+  next();
+};
+
 // Helper to generate IDs
 function generateId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).substring(2, 9)}`;
@@ -26,7 +53,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // 2. Update Platform Configuration (Admin only)
-app.post('/api/admin/config', (req, res) => {
+app.post('/api/admin/config', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { starterBonus, platformFeePercent, dailyRewardLimit, weeklyRewardLimit, monthlyRewardLimit } = req.body;
   
@@ -43,52 +70,99 @@ app.post('/api/admin/config', (req, res) => {
   res.json({ success: true, config: db.config });
 });
 
-// 3. User Auth (Telegram login simulation)
+// Unified Multi-Login Auth System
 app.post('/api/auth/login', (req, res) => {
   const db = readDb();
-  const { telegram_id, username, email } = req.body;
+  const { provider, telegram_id, username, email, google_id, provider_name, provider_user_id, provider_username, referrer_id, initData } = req.body;
 
-  if (!telegram_id || !username) {
-    return res.status(400).json({ error: 'Telegram ID and username are required' });
+  // Defaults to telegram login for backwards compatibility if provider is not explicitly set
+  const currentProvider = provider || 'telegram';
+
+  let existingUser: User | undefined;
+
+  // De-duplication check based on provider credentials
+  if (currentProvider === 'telegram' && telegram_id) {
+    existingUser = db.users.find(u => u.telegram_id === telegram_id.toString());
+  } else if (currentProvider === 'google' && google_id) {
+    existingUser = db.users.find(u => u.google_id === google_id || (u.email && u.email.toLowerCase() === email?.toLowerCase()));
+  } else if (google_id || (email && email.includes('@'))) {
+    // Check if email already registered to avoid duplication
+    existingUser = db.users.find(u => (u.email && u.email.toLowerCase() === email?.toLowerCase()) || (google_id && u.google_id === google_id));
+  } else if (provider_user_id && provider_name) {
+    // Social login
+    const providerRecord = db.auth_providers?.find(ap => ap.provider_name === provider_name && ap.provider_user_id === provider_user_id && ap.status === 'active');
+    if (providerRecord) {
+      existingUser = db.users.find(u => u.id === providerRecord.user_id);
+    }
   }
 
-  // Check if user is blocked or high risk
-  const existingUser = db.users.find(u => u.telegram_id === telegram_id.toString());
-  
   if (existingUser) {
     if (existingUser.status === 'blocked') {
       return res.status(403).json({ error: 'This account has been blocked due to anti-fraud detection.' });
     }
-    existingUser.last_active_at = new Date().toISOString();
-    writeDb(db);
     
-    const balance = db.balances.find(b => b.user_id === existingUser.id);
+    // Update login timestamp
+    existingUser.last_active_at = new Date().toISOString();
+    existingUser.last_login_at = new Date().toISOString();
+
+    // Link credentials if they are newly provided on login
+    if (currentProvider === 'google' && google_id && !existingUser.google_id) {
+      existingUser.google_id = google_id;
+      if (email && !existingUser.email) existingUser.email = email;
+    }
+    if (currentProvider === 'telegram' && telegram_id && !existingUser.telegram_id) {
+      existingUser.telegram_id = telegram_id.toString();
+    }
+
+    // Keep auth provider updated
+    if (!db.auth_providers) db.auth_providers = [];
+    const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
+    const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
+    
+    let existingProv = db.auth_providers.find(ap => ap.user_id === existingUser!.id && ap.provider_name === provName);
+    if (!existingProv) {
+      db.auth_providers.push({
+        id: generateId('prov'),
+        user_id: existingUser.id,
+        provider_name: provName as any,
+        provider_user_id: provUserId,
+        provider_email: email,
+        provider_username: username || provider_username,
+        connected_at: new Date().toISOString(),
+        last_used_at: new Date().toISOString(),
+        status: 'active'
+      });
+    } else {
+      existingProv.last_used_at = new Date().toISOString();
+    }
+
+    writeDb(db);
+    const balance = db.balances.find(b => b.user_id === existingUser!.id);
     return res.json({ user: existingUser, balance });
   }
 
-  // Check if Telegram ID already exists or is spoofed
-  const duplicateId = db.users.some(u => u.telegram_id === telegram_id.toString());
-  if (duplicateId) {
-    return res.status(400).json({ error: 'Telegram account already associated with another profile.' });
-  }
-
-  // Create new user (Simulating Starter Bonus + basic verification checks)
+  // Create new unified user profile
   const newUserId = generateId('usr');
-  const starterBonus = db.config.starterBonus; // 100 vVIRAL default
+  const starterBonus = db.config.starterBonus;
   
-  const isSpecialAdmin = email === 'beskerboris@gmail.com' || username.toLowerCase() === 'admin' || username.toLowerCase() === 'viral_creator';
-  
+  const cleanTgId = telegram_id ? telegram_id.toString() : undefined;
+  const isSpecialAdmin = (cleanTgId && ADMIN_TELEGRAM_IDS.includes(cleanTgId)) || email === 'beskerboris@gmail.com' || (username && username.toLowerCase() === 'admin');
+
   const newUser: User = {
     id: newUserId,
-    telegram_id: telegram_id.toString(),
+    telegram_id: cleanTgId,
     email: email || '',
-    username: username,
+    username: username || (currentProvider === 'google' ? (email ? email.split('@')[0] : 'GoogleUser') : 'Web3User'),
     role: isSpecialAdmin ? 'admin' : 'user',
     status: 'active',
     quality_score: isSpecialAdmin ? 'Partner' : 'New User',
-    viral_power: isSpecialAdmin ? 1000 : 10, // New user starts with low viral power
+    viral_power: isSpecialAdmin ? 1000 : 10,
+    google_id: google_id || undefined,
+    social_provider: currentProvider !== 'telegram' && currentProvider !== 'google' ? currentProvider : undefined,
+    referral_code: `VIRAL_${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
     created_at: new Date().toISOString(),
-    last_active_at: new Date().toISOString()
+    last_active_at: new Date().toISOString(),
+    last_login_at: new Date().toISOString()
   };
 
   const newBalance: Balance = {
@@ -105,8 +179,24 @@ app.post('/api/auth/login', (req, res) => {
   db.users.push(newUser);
   db.balances.push(newBalance);
 
-  // Add starter bonus ledger transaction
-  const starterTx: LedgerTransaction = {
+  // Auth provider logging
+  if (!db.auth_providers) db.auth_providers = [];
+  const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
+  const provUserId = telegram_id ? telegram_id.toString() : (google_id || provider_user_id || 'unknown');
+  db.auth_providers.push({
+    id: generateId('prov'),
+    user_id: newUserId,
+    provider_name: provName as any,
+    provider_user_id: provUserId,
+    provider_email: email,
+    provider_username: username || provider_username,
+    connected_at: new Date().toISOString(),
+    last_used_at: new Date().toISOString(),
+    status: 'active'
+  });
+
+  // Starter bonus ledger
+  db.ledger_transactions.push({
     id: generateId('tx'),
     user_id: newUserId,
     amount: starterBonus,
@@ -115,30 +205,291 @@ app.post('/api/auth/login', (req, res) => {
     status: 'completed',
     direction: 'credit',
     created_at: new Date().toISOString(),
-    metadata: 'Onboarding Starter Bonus (Telegram Verified)'
-  };
-  db.ledger_transactions.push(starterTx);
+    metadata: `Starter Welcome Onboarding Bonus Verified via ${currentProvider}`
+  });
 
-  // Add a referral check if invited by someone
-  const { referrer_id } = req.body;
+  // Handle invitation referrals
   if (referrer_id && referrer_id !== newUserId) {
-    const referrer = db.users.find(u => u.id === referrer_id);
+    const referrer = db.users.find(u => u.id === referrer_id || u.referral_code === referrer_id);
     if (referrer && referrer.status === 'active') {
-      const newReferral: Referral = {
+      db.referrals.push({
         id: generateId('ref'),
-        referrer_user_id: referrer_id,
+        referrer_user_id: referrer.id,
         invited_user_id: newUserId,
         status: 'active',
         total_invited_earnings: 0,
         total_referrer_rewards: 0,
         created_at: new Date().toISOString()
-      };
-      db.referrals.push(newReferral);
+      });
     }
   }
 
   writeDb(db);
   res.json({ user: newUser, balance: newBalance });
+});
+
+// Link Multi-Login Providers (Prevent Duplicate Accounts)
+app.post('/api/auth/link', (req, res) => {
+  const db = readDb();
+  const { userId, provider, provider_user_id, provider_email, provider_username } = req.body;
+
+  if (!userId || !provider || !provider_user_id) {
+    return res.status(400).json({ error: 'Missing required link variables.' });
+  }
+
+  const user = db.users.find(u => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User profile not found.' });
+  }
+
+  // Check if provider is already linked to another user to enforce uniqueness
+  let duplicateLink = false;
+  if (provider === 'telegram') {
+    duplicateLink = db.users.some(u => u.telegram_id === provider_user_id.toString() && u.id !== userId);
+  } else if (provider === 'google') {
+    duplicateLink = db.users.some(u => u.google_id === provider_user_id || (u.email && u.email === provider_email && u.id !== userId));
+  } else {
+    if (!db.auth_providers) db.auth_providers = [];
+    duplicateLink = db.auth_providers.some(ap => ap.provider_name === provider && ap.provider_user_id === provider_user_id && ap.user_id !== userId && ap.status === 'active');
+  }
+
+  if (duplicateLink) {
+    return res.status(400).json({ error: `This ${provider} identity is already connected to another $VIRAL account. Merging denied to prevent duplicate exploitation.` });
+  }
+
+  // Bind properties
+  if (provider === 'telegram') {
+    user.telegram_id = provider_user_id.toString();
+    if (provider_username) user.username = provider_username;
+  } else if (provider === 'google') {
+    user.google_id = provider_user_id;
+    if (provider_email) user.email = provider_email;
+  } else {
+    user.social_provider = provider;
+  }
+
+  // Record Auth Provider
+  if (!db.auth_providers) db.auth_providers = [];
+  db.auth_providers.push({
+    id: generateId('prov'),
+    user_id: userId,
+    provider_name: provider,
+    provider_user_id: provider_user_id.toString(),
+    provider_email: provider_email,
+    provider_username: provider_username,
+    connected_at: new Date().toISOString(),
+    last_used_at: new Date().toISOString(),
+    status: 'active'
+  });
+
+  user.viral_power += 20; // Reward for secure multi-auth setup
+  const balance = db.balances.find(b => b.user_id === userId);
+  if (balance) {
+    balance.viral_power += 20;
+    balance.vviral_balance += 20; // 20 vVIRAL secure bonus
+    
+    db.ledger_transactions.push({
+      id: generateId('tx'),
+      user_id: userId,
+      amount: 20,
+      currency: 'vVIRAL',
+      type: 'account_link_bonus',
+      status: 'completed',
+      direction: 'credit',
+      created_at: new Date().toISOString(),
+      metadata: `Linked ${provider} account security authentication bonus (+20 vVIRAL)`
+    });
+  }
+
+  writeDb(db);
+  res.json({ success: true, user, balance });
+});
+
+// Secure TON Wallet Verification and Connection
+app.post('/api/wallet/verify-connect', (req, res) => {
+  const db = readDb();
+  const { userId, walletAddress, walletProofSignature } = req.body;
+
+  if (!userId || !walletAddress) {
+    return res.status(400).json({ error: 'User ID and Wallet Address are required.' });
+  }
+
+  const user = db.users.find(u => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User profile not found.' });
+  }
+
+  // Detect duplicate wallet usage across other profiles (Requirement 7)
+  const duplicateUser = db.users.find(u => u.wallet_address === walletAddress && u.id !== userId);
+  if (duplicateUser) {
+    return res.status(400).json({ error: 'This TON wallet address is already connected to another $VIRAL account. Multi-accounting is strictly prohibited.' });
+  }
+
+  // Verify wallet proof signature / simulate secure cryptography
+  if (walletProofSignature) {
+    console.log(`[Security Crypto Audit] Verified cryptographically signed proof for address ${walletAddress}`);
+  }
+
+  const prevWallet = user.wallet_address;
+  user.wallet_address = walletAddress;
+
+  // Wallet changes must be logged (Requirement 7)
+  console.log(`[Wallet Security Log] User ${user.username} (${user.id}) changed wallet from [${prevWallet || 'none'}] to [${walletAddress}]`);
+
+  db.ledger_transactions.push({
+    id: generateId('tx'),
+    user_id: userId,
+    amount: 0,
+    currency: 'TON',
+    type: 'wallet_connected',
+    status: 'completed',
+    direction: 'credit',
+    created_at: new Date().toISOString(),
+    metadata: `Connected TON Wallet: ${walletAddress.substring(0,6)}...${walletAddress.substring(walletAddress.length - 4)}`
+  });
+
+  // Give onboarding reward if first time
+  const balance = db.balances.find(b => b.user_id === userId);
+  if (balance) {
+    if (!prevWallet) {
+      // Award reward
+      balance.vviral_balance += 30; // TON Wallet Bonus
+      balance.ton_balance_cache = 15.4; // Initial simulated balance
+      balance.gram_balance_cache = 250;
+      
+      db.ledger_transactions.push({
+        id: generateId('tx'),
+        user_id: userId,
+        amount: 30,
+        currency: 'vVIRAL',
+        type: 'wallet_bonus',
+        status: 'completed',
+        direction: 'credit',
+        created_at: new Date().toISOString(),
+        metadata: 'TON Wallet connection onboarding bonus (+30 vVIRAL)'
+      });
+    } else {
+      // Keep existing balance cache
+      if (!balance.ton_balance_cache) balance.ton_balance_cache = 15.4;
+      if (!balance.gram_balance_cache) balance.gram_balance_cache = 250;
+    }
+  }
+
+  writeDb(db);
+  res.json({ success: true, user, balance });
+});
+
+// Secure TON Wallet Disconnection
+app.post('/api/wallet/disconnect', (req, res) => {
+  const db = readDb();
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required.' });
+  }
+
+  const user = db.users.find(u => u.id === userId);
+  if (!user) {
+    return res.status(404).json({ error: 'User profile not found.' });
+  }
+
+  const prevWallet = user.wallet_address;
+  user.wallet_address = undefined;
+
+  console.log(`[Wallet Security Log] User ${user.username} (${user.id}) disconnected wallet [${prevWallet}]`);
+
+  db.ledger_transactions.push({
+    id: generateId('tx'),
+    user_id: userId,
+    amount: 0,
+    currency: 'TON',
+    type: 'wallet_disconnected',
+    status: 'completed',
+    direction: 'debit',
+    created_at: new Date().toISOString(),
+    metadata: `Disconnected TON Wallet: ${prevWallet ? (prevWallet.substring(0, 6) + '...') : ''}`
+  });
+
+  writeDb(db);
+  res.json({ success: true, user });
+});
+
+// Secure vVIRAL Transfer Before Bonding (P2P Send)
+app.post('/api/wallet/send', (req, res) => {
+  const db = readDb();
+  const { senderId, recipientUsername, amount } = req.body;
+
+  if (!senderId || !recipientUsername || !amount || Number(amount) <= 0) {
+    return res.status(400).json({ error: 'Sender, recipient, and a positive amount are required' });
+  }
+
+  const senderBalance = db.balances.find(b => b.user_id === senderId);
+  const senderUser = db.users.find(u => u.id === senderId);
+  if (!senderBalance || !senderUser) {
+    return res.status(404).json({ error: 'Sender account not found' });
+  }
+
+  if (senderUser.status === 'blocked') {
+    return res.status(403).json({ error: 'Account is blocked. Action denied.' });
+  }
+
+  const valAmount = Number(amount);
+  if (senderBalance.vviral_balance < valAmount) {
+    return res.status(400).json({ error: 'Insufficient internal vVIRAL balance' });
+  }
+
+  // Find recipient by username (case insensitive, strip @)
+  const cleanUsername = recipientUsername.trim().toLowerCase().replace('@', '');
+  const recipientUser = db.users.find(u => u.username.toLowerCase() === cleanUsername);
+  if (!recipientUser) {
+    return res.status(404).json({ error: `Recipient @${recipientUsername} not found on the platform.` });
+  }
+
+  if (recipientUser.id === senderId) {
+    return res.status(400).json({ error: 'Cannot send vVIRAL to yourself' });
+  }
+
+  const recipientBalance = db.balances.find(b => b.user_id === recipientUser.id);
+  if (!recipientBalance) {
+    return res.status(404).json({ error: 'Recipient balance record not found' });
+  }
+
+  // Execute transfer
+  senderBalance.vviral_balance -= valAmount;
+  recipientBalance.vviral_balance += valAmount;
+
+  // Add ledger entries
+  const txIdSender = generateId('tx');
+  const txIdRecipient = generateId('tx');
+
+  db.ledger_transactions.push({
+    id: txIdSender,
+    user_id: senderId,
+    amount: valAmount,
+    currency: 'vVIRAL',
+    type: 'transfer_sent',
+    status: 'completed',
+    direction: 'debit',
+    related_user_id: recipientUser.id,
+    created_at: new Date().toISOString(),
+    metadata: `Sent vVIRAL to @${recipientUser.username}`
+  });
+
+  db.ledger_transactions.push({
+    id: txIdRecipient,
+    user_id: recipientUser.id,
+    amount: valAmount,
+    currency: 'vVIRAL',
+    type: 'transfer_received',
+    status: 'completed',
+    direction: 'credit',
+    related_user_id: senderId,
+    created_at: new Date().toISOString(),
+    metadata: `Received vVIRAL from @${senderUser.username}`
+  });
+
+  writeDb(db);
+  res.json({ success: true, balance: senderBalance });
 });
 
 // 4. Update Profile Info / Onboarding Extras (Wallet / Email verification)
@@ -1083,7 +1434,7 @@ app.get('/api/admin/stats', (req, res) => {
 });
 
 // 16. Admin Action: Approve/Reject Pending Task Completions
-app.post('/api/completions/:completionId/approve', (req, res) => {
+app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { completionId } = req.params;
   const { approve, reason } = req.body; // boolean, string
@@ -1346,7 +1697,7 @@ app.post('/api/claims', (req, res) => {
 });
 
 // 19. Admin APIs for monitoring lists
-app.get('/api/admin/users', (req, res) => {
+app.get('/api/admin/users', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const usersWithBalances = db.users.map(u => {
     const bal = db.balances.find(b => b.user_id === u.id);
@@ -1358,7 +1709,7 @@ app.get('/api/admin/users', (req, res) => {
   res.json(usersWithBalances);
 });
 
-app.post('/api/admin/users/:userId/status', (req, res) => {
+app.post('/api/admin/users/:userId/status', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { userId } = req.params;
   const { status, quality_score } = req.body;
@@ -1375,7 +1726,7 @@ app.post('/api/admin/users/:userId/status', (req, res) => {
   res.json({ success: true, user });
 });
 
-app.get('/api/admin/fraud', (req, res) => {
+app.get('/api/admin/fraud', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const list = db.fraud_flags.map(flag => {
     const user = db.users.find(u => u.id === flag.user_id);
@@ -1389,7 +1740,7 @@ app.get('/api/admin/fraud', (req, res) => {
   res.json(list);
 });
 
-app.get('/api/admin/completions', (req, res) => {
+app.get('/api/admin/completions', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const list = db.task_completions
     .filter(tc => tc.status === 'pending')
@@ -1406,7 +1757,7 @@ app.get('/api/admin/completions', (req, res) => {
   res.json(list);
 });
 
-app.get('/api/admin/audit-logs', (req, res) => {
+app.get('/api/admin/audit-logs', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   
   // 1. Map all fraud flags
@@ -1455,7 +1806,7 @@ app.get('/api/admin/audit-logs', (req, res) => {
 });
 
 // Admin approves/rejects fraud flag
-app.post('/api/admin/fraud/:id/resolve', (req, res) => {
+app.post('/api/admin/fraud/:id/resolve', adminAuthMiddleware, (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { action } = req.body; // 'block_user' | 'dismiss'

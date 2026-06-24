@@ -246,6 +246,7 @@ function MainApp() {
 
             {activeTab === 'admin' && currentUser.role === 'admin' && (
               <Admin 
+                user={currentUser}
                 onBondingToggled={reloadUserAndBalance} 
               />
             )}

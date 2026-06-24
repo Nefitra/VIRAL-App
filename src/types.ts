@@ -1,6 +1,6 @@
 export interface User {
   id: string;
-  telegram_id: string;
+  telegram_id?: string; // Made optional to support pure email/Google logins!
   email?: string;
   username: string;
   wallet_address?: string;
@@ -8,10 +8,26 @@ export interface User {
   status: 'active' | 'blocked';
   quality_score: 'New User' | 'Verified User' | 'Active User' | 'Trusted User' | 'Partner' | 'High-Risk User' | 'Blocked User';
   viral_power: number;
+  google_id?: string;
+  social_provider?: string;
+  referral_code?: string;
   created_at: string;
   last_active_at: string;
+  last_login_at?: string;
   last_checkin_at?: string;
   checkin_streak?: number;
+}
+
+export interface AuthProvider {
+  id: string;
+  user_id: string;
+  provider_name: 'telegram' | 'google' | 'x' | 'facebook' | 'apple' | 'discord';
+  provider_user_id: string;
+  provider_email?: string;
+  provider_username?: string;
+  connected_at: string;
+  last_used_at: string;
+  status: 'active' | 'revoked';
 }
 
 export interface Balance {
