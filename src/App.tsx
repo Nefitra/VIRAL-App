@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Rocket, Compass, PlusCircle, Coins, Users, 
   Settings, Award, Sparkles, LogIn, UserCircle, 
-  MessageSquare, ShieldCheck, Database, Info
+  MessageSquare, ShieldCheck, Database, Info, Wallet as WalletIcon
 } from 'lucide-react';
 
 import { User, Balance } from './types';
@@ -15,14 +15,28 @@ import Referrals from './components/Referrals';
 import More from './components/More';
 import Admin from './components/Admin';
 import AdminCheck from './components/AdminCheck';
+import TonConnectCheck from './components/TonConnectCheck';
+import { useTonAddress, useTonWallet, useTonConnectUI } from '@tonconnect/ui-react';
 import { ToastProvider, useToast } from './components/Toast';
 
 function MainApp() {
   const { showToast } = useToast();
+  const tonFriendlyAddress = useTonAddress();
+  const tonWallet = useTonWallet();
+  const [tonConnectUI] = useTonConnectUI();
+  
   // Pre-loaded switchable users for preview and simulation
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentBalance, setCurrentBalance] = useState<Balance | null>(null);
-  const [activeTab, setActiveTab] = useState<string>('home');
+  
+  const getInitialTab = () => {
+    const path = window.location.pathname;
+    if (path === '/admin-check') return 'admin-check';
+    if (path === '/admin') return 'admin';
+    if (path === '/tonconnect-check') return 'tonconnect-check';
+    return 'home';
+  };
+  const [activeTab, setActiveTab] = useState<string>(getInitialTab);
   const [selectedCampaignFromDiscover, setSelectedCampaignFromDiscover] = useState<any | null>(null);
   
   // Multi-Login Authentication States
@@ -33,9 +47,128 @@ function MainApp() {
   const [googleSubId, setGoogleSubId] = useState('google_sub_12345');
   const [authError, setAuthError] = useState('');
 
+  // Sync tab with URL path for direct route support
+  useEffect(() => {
+    const handleLocationChange = () => {
+      const path = window.location.pathname;
+      if (path === '/admin-check') {
+        setActiveTab('admin-check');
+      } else if (path === '/admin') {
+        setActiveTab('admin');
+      } else if (path === '/tonconnect-check') {
+        setActiveTab('tonconnect-check');
+      } else if (path === '/home') {
+        setActiveTab('home');
+      } else if (path === '/more') {
+        setActiveTab('more');
+      }
+    };
+
+    window.addEventListener('popstate', handleLocationChange);
+    return () => window.removeEventListener('popstate', handleLocationChange);
+  }, []);
+
+  // Update URL pathname when activeTab changes
+  useEffect(() => {
+    const currentPath = window.location.pathname;
+    const targetPath = activeTab === 'home' ? '/' : `/${activeTab}`;
+    if (currentPath !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+    }
+  }, [activeTab]);
+
+  // Automated backend wallet sync when TonConnect changes
+  useEffect(() => {
+    if (!currentUser) return;
+
+    // Connect wallet to backend if it is connected in UI but not synced
+    if (tonFriendlyAddress && currentUser.wallet_address !== tonFriendlyAddress) {
+      console.log(`[TonConnect Sync] Syncing wallet ${tonFriendlyAddress} with user ${currentUser.username}`);
+      
+      fetch('/api/wallet/verify-connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: currentUser.id,
+          walletAddress: tonFriendlyAddress,
+          walletProofSignature: tonWallet?.connectItems?.tonProof?.name || `tonconnect_proof_${Date.now()}`
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.error) {
+            console.error('[TonConnect Sync Error]:', data.error);
+            showToast(data.error, 'error', 'Wallet Sync Failed');
+          } else {
+            setCurrentUser(data.user);
+            if (data.balance) {
+              setCurrentBalance(data.balance);
+            }
+            showToast(`Decentralized TON Wallet linked successfully!`, 'success', 'Wallet Connected');
+          }
+        })
+        .catch(err => {
+          console.error('[TonConnect Sync Network Error]:', err);
+        });
+    }
+    // Disconnect wallet from backend if disconnected in UI but remains in user profile
+    else if (!tonFriendlyAddress && currentUser.wallet_address) {
+      console.log(`[TonConnect Sync] Disconnecting wallet from backend`);
+      fetch('/api/wallet/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error) {
+            setCurrentUser(data.user);
+            showToast('TON Wallet disconnected successfully.', 'success', 'Wallet Unlinked');
+          }
+        })
+        .catch(err => {
+          console.error('[TonConnect Disconnect Network Error]:', err);
+        });
+    }
+  }, [tonFriendlyAddress, currentUser?.id]);
+
   // Initial fetch for the default session
   useEffect(() => {
-    handleLoginSimulation('11223344', 'TON_Sniper', undefined, true);
+    const tgWebApp = (window as any).Telegram?.WebApp;
+    const tgUser = tgWebApp?.initDataUnsafe?.user;
+    const initData = tgWebApp?.initData;
+
+    if (tgUser && tgUser.id) {
+      // Real Telegram WebApp Environment - log in using real credentials!
+      fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-telegram-init-data': initData || ''
+        },
+        body: JSON.stringify({
+          telegram_id: tgUser.id.toString(),
+          username: tgUser.username || `tg_${tgUser.id}`,
+          initData: initData || ''
+        })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.error) {
+            setCurrentUser(data.user);
+            setCurrentBalance(data.balance);
+            showToast(`Synced Telegram Session: @${data.user.username}`, 'success', 'Ecosystem Authenticated');
+          } else {
+            setAuthError(data.error);
+          }
+        })
+        .catch(err => {
+          console.error('Telegram auto-auth error:', err);
+        });
+    } else {
+      // Fallback/Simulation mode in browser
+      handleLoginSimulation('11223344', 'TON_Sniper', undefined, true);
+    }
   }, []);
 
   const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false) => {
@@ -169,12 +302,34 @@ function MainApp() {
       {currentUser && currentBalance && (
         <div className="bg-[#05020D] border-b border-[#A9A3B8]/5 px-4 py-2.5">
           <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between text-xs text-[#A9A3B8] gap-3">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <UserCircle className="h-4 w-4 text-[#B066FF]" />
-              <span className="text-white font-bold truncate">@{currentUser.username}</span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#8A2BFF]/10 text-[#B066FF] font-mono border border-[#8A2BFF]/20">
-                {currentUser.quality_score}
-              </span>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <UserCircle className="h-4 w-4 text-[#B066FF]" />
+                <span className="text-white font-bold truncate">@{currentUser.username}</span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#8A2BFF]/10 text-[#B066FF] font-mono border border-[#8A2BFF]/20">
+                  {currentUser.quality_score}
+                </span>
+              </div>
+
+              {/* Wallet Status Badge or Connect Button */}
+              {tonFriendlyAddress || currentUser.wallet_address ? (
+                <div className="flex items-center gap-1 bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 px-2 py-0.5 rounded-full font-mono text-[9px] font-bold">
+                  <span className="h-1 w-1 rounded-full bg-[#38F8B0] animate-pulse"></span>
+                  <span>{(tonFriendlyAddress || currentUser.wallet_address).substring(0, 4)}...{(tonFriendlyAddress || currentUser.wallet_address).substring((tonFriendlyAddress || currentUser.wallet_address).length - 4)}</span>
+                </div>
+              ) : (
+                <button
+                  id="header-btn-connect-wallet"
+                  onClick={() => {
+                    if (tonConnectUI) {
+                      tonConnectUI.openModal();
+                    }
+                  }}
+                  className="bg-[#38F8B0] hover:bg-[#38F8B0]/95 text-[#05020D] text-[9px] font-extrabold px-2 py-0.5 rounded transition-colors cursor-pointer flex items-center gap-1 uppercase tracking-wide"
+                >
+                  <Sparkles className="h-2.5 w-2.5" /> Connect Wallet
+                </button>
+              )}
             </div>
 
             <div className="flex gap-4">
@@ -206,15 +361,10 @@ function MainApp() {
             
             {activeTab === 'discover' && (
               <Discover 
+                user={currentUser}
+                balance={currentBalance}
                 onSelectCampaign={handleSelectCampaignFromDiscover} 
-              />
-            )}
-
-            {activeTab === 'promote' && (
-              <Promote 
-                user={currentUser} 
-                balance={currentBalance} 
-                onCampaignCreated={reloadUserAndBalance} 
+                onCampaignCreated={reloadUserAndBalance}
               />
             )}
 
@@ -263,6 +413,13 @@ function MainApp() {
 
             {activeTab === 'admin-check' && (
               <AdminCheck 
+                user={currentUser}
+                onBack={() => setActiveTab('more')}
+              />
+            )}
+
+            {activeTab === 'tonconnect-check' && (
+              <TonConnectCheck 
                 user={currentUser}
                 onBack={() => setActiveTab('more')}
               />
@@ -383,96 +540,85 @@ function MainApp() {
 
       {/* 3. Navigation Bar (Responsive, Fixed bottom for perfect Telegram layout) */}
       {currentUser && currentBalance && (
-        <nav className="fixed bottom-0 left-0 right-0 border-t border-[#A9A3B8]/10 bg-[#0B0618]/90 backdrop-blur-md px-3 py-1.5 z-40">
-          <div className="max-w-xl mx-auto flex justify-between items-center gap-1">
+        <nav className="fixed bottom-0 left-0 right-0 border-t border-[#A9A3B8]/10 bg-[#0B0618]/95 backdrop-blur-lg px-2 py-1.5 z-40">
+          <div className="max-w-xl mx-auto flex justify-between items-center w-full">
             
             <button
               id="app-tab-home"
               onClick={() => { setActiveTab('home'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                 activeTab === 'home' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
               <Award className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Home</span>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">Home</span>
             </button>
 
             <button
               id="app-tab-discover"
               onClick={() => { setActiveTab('discover'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                 activeTab === 'discover' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
               <Compass className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Discover</span>
-            </button>
-
-            <button
-              id="app-tab-promote"
-              onClick={() => { setActiveTab('promote'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
-                activeTab === 'promote' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
-              }`}
-            >
-              <PlusCircle className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Promote</span>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">Discover</span>
             </button>
 
             <button
               id="app-tab-earn"
               onClick={() => { setActiveTab('earn'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
-                activeTab === 'earn' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
+                activeTab === 'earn' ? 'text-[#FFD36A]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
               <Coins className="h-4 w-4 animate-pulse text-[#FFD36A]" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90 text-[#FFD36A]">Earn</span>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90 text-[#FFD36A]">Earn</span>
             </button>
 
             <button
               id="app-tab-wallet"
               onClick={() => { setActiveTab('wallet'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                 activeTab === 'wallet' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
-              <Coins className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Wallet</span>
+              <WalletIcon className="h-4 w-4" />
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">Wallet</span>
             </button>
 
             <button
               id="app-tab-referrals"
               onClick={() => { setActiveTab('referrals'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                 activeTab === 'referrals' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
               <Users className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Network</span>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">Network</span>
             </button>
 
             <button
               id="app-tab-more"
               onClick={() => { setActiveTab('more'); setSelectedCampaignFromDiscover(null); }}
-              className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                 activeTab === 'more' ? 'text-[#B066FF]' : 'text-[#A9A3B8] hover:text-white'
               }`}
             >
               <Info className="h-4 w-4" />
-              <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">More</span>
+              <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">More</span>
             </button>
 
             {(currentUser.role === 'admin' || currentUser.is_admin === true || (currentUser.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(currentUser.telegram_id.toString()))) && (
               <button
                 id="app-tab-admin"
                 onClick={() => { setActiveTab('admin'); setSelectedCampaignFromDiscover(null); }}
-                className={`flex flex-col items-center gap-1 p-0.5 transition-colors cursor-pointer ${
+                className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 transition-colors cursor-pointer ${
                   activeTab === 'admin' ? 'text-[#FFD36A]' : 'text-[#A9A3B8] hover:text-[#FFD36A]'
                 }`}
               >
                 <Settings className="h-4 w-4 text-[#FFD36A]" />
-                <span className="text-[8px] font-mono font-bold uppercase tracking-wider scale-90">Admin</span>
+                <span className="text-[9px] font-mono font-bold uppercase tracking-wider scale-90">Admin</span>
               </button>
             )}
 

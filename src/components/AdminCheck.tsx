@@ -373,22 +373,22 @@ export default function AdminCheck({ user, onBack }: AdminCheckProps) {
             
             <div className="flex justify-between">
               <span>Client Container:</span>
-              <span className={isTgInitDataPresent ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D]"}>
+              <span className={isTgInitDataPresent ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
                 {isTgInitDataPresent ? "Telegram Mini App" : "Browser"}
               </span>
             </div>
 
             <div className="flex justify-between">
               <span>initData received:</span>
-              <span className={data?.init_data_received ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D]"}>
-                {data?.init_data_received ? "true" : "false"}
+              <span className={data?.init_data_received ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
+                {data?.init_data_received ? "PASS" : "FAIL"}
               </span>
             </div>
 
             <div className="flex justify-between">
               <span>initData valid:</span>
-              <span className={data?.init_data_valid ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D]"}>
-                {data?.init_data_valid ? "true" : "false"}
+              <span className={data?.init_data_valid ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
+                {data?.init_data_valid ? "PASS" : "FAIL"}
               </span>
             </div>
 
@@ -401,15 +401,15 @@ export default function AdminCheck({ user, onBack }: AdminCheckProps) {
 
             <div className="flex justify-between">
               <span>detected username:</span>
-              <span className="text-white">
+              <span className="text-white font-bold">
                 {data?.telegram_username ? `@${data.telegram_username}` : `@${user.username || 'TON_Sniper'}`}
               </span>
             </div>
 
             <div className="flex justify-between">
               <span>ADMIN_TELEGRAM_IDS loaded:</span>
-              <span className={data?.admin_telegram_ids_loaded ? "text-[#38F8B0]" : "text-[#FF4D6D]"}>
-                {data?.admin_telegram_ids_loaded ? "true" : "false"}
+              <span className={data?.admin_telegram_ids_loaded ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
+                {data?.admin_telegram_ids_loaded ? "PASS" : "FAIL"}
               </span>
             </div>
 
@@ -420,14 +420,14 @@ export default function AdminCheck({ user, onBack }: AdminCheckProps) {
 
             <div className="flex justify-between">
               <span>authenticated user match:</span>
-              <span className={data?.in_admin_list ? "text-[#38F8B0] font-bold" : "text-[#FFD36A]"}>
+              <span className={data?.in_admin_list ? "text-[#38F8B0] font-bold" : "text-[#FFD36A] font-bold"}>
                 {data?.in_admin_list ? "MATCH" : "MISMATCH"}
               </span>
             </div>
 
             <div className="flex justify-between">
               <span>is_admin:</span>
-              <span className={data?.is_admin ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D]"}>
+              <span className={data?.is_admin ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
                 {data?.is_admin ? "true" : "false"}
               </span>
             </div>
@@ -439,7 +439,7 @@ export default function AdminCheck({ user, onBack }: AdminCheckProps) {
 
             <div className="flex justify-between">
               <span>ADMIN section:</span>
-              <span className={data?.is_admin ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D]"}>
+              <span className={data?.is_admin ? "text-[#38F8B0] font-bold" : "text-[#FF4D6D] font-bold"}>
                 {data?.is_admin ? "visible" : "hidden"}
               </span>
             </div>

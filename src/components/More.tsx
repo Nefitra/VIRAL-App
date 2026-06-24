@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, Balance } from '../types';
+import { useTonAddress, useTonConnectUI } from '@tonconnect/ui-react';
 import { 
   HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen, Trophy, Info, Sparkles,
   Palette, Coins, Lock, ShieldCheck as ShieldCheckIcon, Share2, Percent, Settings, Zap, FileText, Database,
@@ -19,6 +20,45 @@ interface MoreProps {
 }
 
 export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck, onOpenAdminSection }: MoreProps) {
+  const tonAddress = useTonAddress();
+  const [tonConnectUI] = useTonConnectUI();
+
+  const [realTonBalance, setRealTonBalance] = useState<number | null>(null);
+  const [realGramBalance, setRealGramBalance] = useState<number | null>(null);
+  const [loadingRealBalances, setLoadingRealBalances] = useState(false);
+
+  const fetchRealBalances = (address: string) => {
+    if (!address) return;
+    setLoadingRealBalances(true);
+    fetch(`/api/wallet/balance/${address}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          setRealTonBalance(data.ton_balance);
+          setRealGramBalance(data.gram_balance);
+        } else {
+          setRealTonBalance(null);
+          setRealGramBalance(null);
+        }
+      })
+      .catch(err => {
+        console.error('Error fetching real balances:', err);
+        setRealTonBalance(null);
+        setRealGramBalance(null);
+      })
+      .finally(() => setLoadingRealBalances(false));
+  };
+
+  useEffect(() => {
+    const activeAddress = tonAddress || user.wallet_address;
+    if (activeAddress) {
+      fetchRealBalances(activeAddress);
+    } else {
+      setRealTonBalance(null);
+      setRealGramBalance(null);
+    }
+  }, [tonAddress, user.wallet_address]);
+
   // Navigation sub-tab
   const [activeSubTab, setActiveSubTab] = useState<'profile' | 'faq' | 'launch'>('profile');
 
@@ -427,9 +467,9 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
                   <Wallet className="h-4 w-4" /> TonConnect Wallet Center
                 </h3>
                 <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${
-                  user.wallet_address ? 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5' : 'text-gray-500 border-gray-500/20'
+                  (tonAddress || user.wallet_address) ? 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5' : 'text-gray-500 border-gray-500/20'
                 }`}>
-                  {user.wallet_address ? 'SECURE_CONNECTED' : 'DISCONNECTED'}
+                  {(tonAddress || user.wallet_address) ? 'SECURE_CONNECTED' : 'DISCONNECTED'}
                 </span>
               </div>
 
@@ -444,114 +484,47 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
                 </div>
               </div>
 
-              {!user.wallet_address ? (
+              {!(tonAddress || user.wallet_address) ? (
                 <div className="space-y-3">
                   <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
                     Connect a TON-compatible decentralized wallet (Tonkeeper, MyTonWallet) to sync your Gram / TON balances, claim accumulated $VIRAL tokens, or perform secure transfers.
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      id="btn-connect-tonkeeper"
-                      disabled={loading}
-                      onClick={() => {
-                        const confirmed = window.confirm('Connect to Tonkeeper client? This will authorize public wallet sync.');
-                        if (!confirmed) return;
-                        setLoading(true);
-                        const mockAddr = `EQA${Math.random().toString(36).substring(2, 10).toUpperCase()}_${Math.random().toString(36).substring(2, 10).toUpperCase()}8Z`;
-                        
-                        fetch('/api/wallet/verify-connect', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            userId: user.id,
-                            walletAddress: mockAddr,
-                            walletProofSignature: `proof_sig_${Math.random().toString(16).substring(2,18)}`
-                          })
-                        })
-                          .then(res => res.json())
-                          .then(data => {
-                            setLoading(false);
-                            if (data.error) {
-                              alert(data.error);
-                            } else {
-                              onProfileUpdated();
-                              alert(`Successfully connected Tonkeeper wallet! Address: ${mockAddr}`);
-                            }
-                          })
-                          .catch(() => setLoading(false));
-                      }}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#38F8B0]/20 bg-[#38F8B0]/5 hover:bg-[#38F8B0]/15 text-xs text-white font-bold py-2.5 transition-all cursor-pointer"
-                    >
-                      <Sparkles className="h-3.5 w-3.5 text-[#38F8B0]" /> Connect Tonkeeper
-                    </button>
-
-                    <button
-                      type="button"
-                      id="btn-connect-mytonwallet"
-                      disabled={loading}
-                      onClick={() => {
-                        const confirmed = window.confirm('Connect to MyTonWallet client? This will authorize public wallet sync.');
-                        if (!confirmed) return;
-                        setLoading(true);
-                        const mockAddr = `EQB${Math.random().toString(36).substring(2, 10).toUpperCase()}_${Math.random().toString(36).substring(2, 10).toUpperCase()}3X`;
-                        
-                        fetch('/api/wallet/verify-connect', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            userId: user.id,
-                            walletAddress: mockAddr,
-                            walletProofSignature: `proof_sig_${Math.random().toString(16).substring(2,18)}`
-                          })
-                        })
-                          .then(res => res.json())
-                          .then(data => {
-                            setLoading(false);
-                            if (data.error) {
-                              alert(data.error);
-                            } else {
-                              onProfileUpdated();
-                              alert(`Successfully connected MyTonWallet! Address: ${mockAddr}`);
-                            }
-                          })
-                          .catch(() => setLoading(false));
-                      }}
-                      className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#B066FF]/20 bg-[#B066FF]/5 hover:bg-[#B066FF]/15 text-xs text-white font-bold py-2.5 transition-all cursor-pointer"
-                    >
-                      <Wallet className="h-3.5 w-3.5 text-[#B066FF]" /> MyTonWallet Client
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    id="btn-connect-tonconnect"
+                    onClick={() => {
+                      if (tonConnectUI) {
+                        tonConnectUI.openModal();
+                      }
+                    }}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#38F8B0] hover:bg-[#38F8B0]/90 text-[#05020D] text-xs font-black py-3 transition-colors cursor-pointer shadow-lg shadow-[#38F8B0]/10"
+                  >
+                    <Wallet className="h-4 w-4" /> Connect TON Wallet
+                  </button>
                 </div>
               ) : (
                 <div className="space-y-4">
                   <div className="rounded-lg bg-[#05020D]/60 border border-[#A9A3B8]/10 p-3 space-y-3">
                     <div className="flex items-center justify-between border-b border-[#A9A3B8]/5 pb-2.5">
-                      <div className="space-y-0.5">
+                      <div className="space-y-0.5 min-w-0">
                         <span className="text-[8px] font-mono tracking-wider text-[#A9A3B8] uppercase block">Connected Wallet (Decentralized)</span>
-                        <span className="text-xs text-[#38F8B0] font-mono break-all font-bold select-text">{user.wallet_address}</span>
+                        <span className="text-xs text-[#38F8B0] font-mono break-all font-bold select-all truncate max-w-[200px] block">{tonAddress || user.wallet_address}</span>
                       </div>
                       <button
                         type="button"
                         id="btn-disconnect-wallet"
                         onClick={() => {
-                          const confirmed = window.confirm('Disconnect your connected TON wallet address? This action requires confirmation.');
-                          if (!confirmed) return;
-                          setLoading(true);
-                          fetch('/api/wallet/disconnect', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ userId: user.id })
-                          })
-                            .then(res => res.json())
-                            .then(() => {
-                              setLoading(false);
-                              onProfileUpdated();
-                              alert('Wallet disconnected successfully.');
-                            })
-                            .catch(() => setLoading(false));
+                          if (tonConnectUI) {
+                            tonConnectUI.disconnect();
+                          } else {
+                            fetch('/api/wallet/disconnect', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ userId: user.id })
+                            }).then(() => onProfileUpdated());
+                          }
                         }}
-                        className="rounded px-2.5 py-1 text-[10px] font-bold bg-[#FF4D6D]/15 border border-[#FF4D6D]/20 text-[#FF4D6D] hover:bg-[#FF4D6D]/25 transition-all cursor-pointer"
+                        className="rounded px-2.5 py-1 text-[10px] font-bold bg-[#FF4D6D]/15 border border-[#FF4D6D]/20 text-[#FF4D6D] hover:bg-[#FF4D6D]/25 transition-all cursor-pointer shrink-0"
                       >
                         Disconnect
                       </button>
@@ -560,19 +533,31 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
                     {/* Live Balances Displays */}
                     <div className="grid grid-cols-3 gap-2 pt-1 text-center">
                       <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
-                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">TON BALANCE</span>
-                        <span className="text-[10px] text-gray-500 font-bold font-mono">
-                          {user.wallet_address ? 'Data unavailable' : 'Connect wallet to view real balance'}
+                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase font-bold">TON BALANCE</span>
+                        <span className="text-[10px] text-white font-bold font-mono">
+                          {loadingRealBalances ? (
+                            <span className="text-[#FFD36A] animate-pulse">Syncing...</span>
+                          ) : realTonBalance !== null ? (
+                            `${realTonBalance.toFixed(4)} TON`
+                          ) : (
+                            'N/A'
+                          )}
                         </span>
                       </div>
                       <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
-                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">GRAM BALANCE</span>
-                        <span className="text-[10px] text-gray-500 font-bold font-mono">
-                          {user.wallet_address ? 'Data unavailable' : 'Connect wallet to view real balance'}
+                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase font-bold">GRAM BALANCE</span>
+                        <span className="text-[10px] text-white font-bold font-mono">
+                          {loadingRealBalances ? (
+                            <span className="text-[#FFD36A] animate-pulse">Syncing...</span>
+                          ) : realGramBalance !== null ? (
+                            `${realGramBalance.toFixed(4)} GRAM`
+                          ) : (
+                            'N/A'
+                          )}
                         </span>
                       </div>
                       <div className="bg-[#05020D]/80 rounded p-1.5 border border-[#A9A3B8]/5 flex flex-col justify-center min-h-[50px]">
-                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase">vVIRAL BALANCE</span>
+                        <span className="text-[7px] font-mono tracking-wider text-[#A9A3B8] block uppercase font-bold">vVIRAL BALANCE</span>
                         <span className="text-xs text-[#FFD36A] font-bold font-mono">{balance.vviral_balance.toLocaleString()}</span>
                       </div>
                     </div>
@@ -844,20 +829,33 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
             <div className="rounded-xl border border-[#B066FF]/20 bg-[#0B0618]/90 glass p-4 space-y-3.5">
               <div className="flex items-center justify-between">
                 <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
-                  <ShieldCheckIcon className="h-4 w-4 text-[#FFD36A]" /> Platform Security Audit
+                  <ShieldCheckIcon className="h-4 w-4 text-[#FFD36A]" /> Diagnostics & Security
                 </h3>
                 <span className="text-[8px] font-mono bg-[#8A2BFF]/10 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded uppercase">Protected</span>
               </div>
               <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
-                Run local cryptographic verification, check for backend role sync status, and verify if your active numeric Telegram ID is pre-authorized for administrative console privileges.
+                Unify your verification checks: inspect your decentralized TonConnect manifest, run decentralized node queries, and verify if your Telegram ID is pre-authorized for admin role access.
               </p>
-              <button
-                type="button"
-                onClick={onOpenAdminCheck}
-                className="w-full bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:from-[#B066FF] hover:to-[#8A2BFF] text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#8A2BFF]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#8A2BFF]/30 hover:scale-[1.01] active:scale-[0.99]"
-              >
-                <Terminal className="h-4 w-4 text-[#FFD36A]" /> Open Security & Admin Diagnostics
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={onOpenAdminCheck}
+                  className="bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:from-[#B066FF] hover:to-[#8A2BFF] text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#8A2BFF]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#8A2BFF]/30"
+                >
+                  <Terminal className="h-4 w-4 text-[#FFD36A]" /> Security & Admin Diagnostics
+                </button>
+                <button
+                  type="button"
+                  id="btn-goto-tonconnect-check"
+                  onClick={() => {
+                    window.history.pushState(null, '', '/tonconnect-check');
+                    window.dispatchEvent(new Event('popstate'));
+                  }}
+                  className="bg-[#0B0618] hover:bg-[#A9A3B8]/10 text-[#38F8B0] text-xs font-bold py-2.5 px-4 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#38F8B0]/20"
+                >
+                  <ShieldCheckIcon className="h-4 w-4 text-[#38F8B0]" /> TonConnect Diagnostic Page
+                </button>
+              </div>
             </div>
 
             {/* 3.6 Administrator Console (For authorized admins only) */}
@@ -1112,6 +1110,12 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
         <p className="text-[11px] text-[#A9A3B8] leading-relaxed font-mono">
           $VIRAL is a utility token for ecosystem activity, promotion and platform interaction. It is not financial advice, not an investment offer and does not guarantee profit, income or token price growth.
         </p>
+      </div>
+
+      {/* 6. Version & Deployment Label */}
+      <div className="rounded-xl border border-[#A9A3B8]/10 bg-[#0B0618]/50 p-4 text-center space-y-1">
+        <p className="text-xs font-mono text-[#38F8B0] font-bold">Build: admin-secure-v1</p>
+        <p className="text-[10px] font-mono text-[#A9A3B8]">Deployed at: 2026-06-24 14:24:00 (Ecosystem Live Node)</p>
       </div>
     </div>
   );

@@ -180,6 +180,20 @@ function generateId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).substring(2, 9)}`;
 }
 
+// TON Connect Dynamic Manifest Endpoint
+app.get('/tonconnect-manifest.json', (req, res) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.get('host');
+  const appUrl = `${protocol}://${host}`;
+  res.json({
+    url: appUrl,
+    name: "$VIRAL App",
+    iconUrl: "https://raw.githubusercontent.com/Nefitra/-VIRAL/main/VIRALTokenOK-ezgif.com-compress-png.png",
+    termsOfUseUrl: `${appUrl}/terms`,
+    privacyPolicyUrl: `${appUrl}/privacy`
+  });
+});
+
 // 1. Get Platform Configuration
 app.get('/api/config', (req, res) => {
   const db = readDb();
@@ -620,6 +634,77 @@ app.post('/api/wallet/disconnect', (req, res) => {
 
   writeDb(db);
   res.json({ success: true, user });
+});
+
+// Fetch real TON and GRAM balances from public blockchain API
+app.get('/api/wallet/balance/:address', async (req, res) => {
+  const { address } = req.params;
+  if (!address) {
+    return res.status(400).json({ error: 'Wallet address is required.' });
+  }
+
+  let ton_balance = 0;
+  let gram_balance = 0;
+  let api_provider = 'TonAPI';
+  let api_success = false;
+
+  try {
+    // 1. Fetch TON balance from TonAPI (primary)
+    const tonApiRes = await fetch(`https://tonapi.io/v2/accounts/${address}`);
+    if (tonApiRes.ok) {
+      const tonData = await tonApiRes.json();
+      if (tonData && typeof tonData.balance === 'number') {
+        ton_balance = tonData.balance / 1000000000;
+        api_success = true;
+      }
+    }
+
+    // 2. Fetch Jettons (GRAM) from TonAPI
+    if (api_success) {
+      const jettonsRes = await fetch(`https://tonapi.io/v2/accounts/${address}/jettons`);
+      if (jettonsRes.ok) {
+        const jettonsData = await jettonsRes.json();
+        if (jettonsData && Array.isArray(jettonsData.balances)) {
+          const gramJetton = jettonsData.balances.find((j: any) => {
+            const sym = j.jetton?.symbol?.toUpperCase();
+            const name = j.jetton?.name?.toUpperCase();
+            return sym === 'GRAM' || name === 'GRAM';
+          });
+          if (gramJetton) {
+            const dec = gramJetton.jetton?.decimals || 9;
+            gram_balance = Number(gramJetton.balance) / Math.pow(10, dec);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Balance API Error] TonAPI fetch failed, falling back to Toncenter:', err);
+  }
+
+  // Fallback to Toncenter if TonAPI was unsuccessful
+  if (!api_success) {
+    api_provider = 'Toncenter';
+    try {
+      const toncenterRes = await fetch(`https://toncenter.com/api/v2/getAddressInformation?address=${address}`);
+      if (toncenterRes.ok) {
+        const tcData = await toncenterRes.json();
+        if (tcData && tcData.ok && tcData.result && tcData.result.balance) {
+          ton_balance = Number(tcData.result.balance) / 1000000000;
+          api_success = true;
+        }
+      }
+    } catch (tcErr) {
+      console.error('[Balance API Error] Toncenter fallback also failed:', tcErr);
+    }
+  }
+
+  res.json({
+    success: api_success,
+    address,
+    ton_balance,
+    gram_balance,
+    provider: api_provider
+  });
 });
 
 // Secure vVIRAL Transfer Before Bonding (P2P Send)

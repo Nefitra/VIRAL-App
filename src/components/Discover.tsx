@@ -1,12 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Filter, ExternalLink, ShieldCheck, Tag, Globe, Sparkles } from 'lucide-react';
-import { Resource, Campaign } from '../types';
+import { Resource, Campaign, User, Balance } from '../types';
+import Promote from './Promote';
 
 interface DiscoverProps {
+  user: User;
+  balance: Balance;
   onSelectCampaign: (campaign: any) => void;
+  onCampaignCreated: () => void;
 }
 
-export default function Discover({ onSelectCampaign }: DiscoverProps) {
+export default function Discover({ user, balance, onSelectCampaign, onCampaignCreated }: DiscoverProps) {
+  const [innerTab, setInnerTab] = useState<'explore' | 'promote'>('explore');
   const [campaigns, setCampaigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState<string>('all');
@@ -53,7 +58,43 @@ export default function Discover({ onSelectCampaign }: DiscoverProps) {
 
   return (
     <div className="space-y-4">
-      {/* Search and Filters */}
+      {/* Internal Sub-navigation Tabs */}
+      <div className="flex gap-2 p-1 bg-[#05020D]/60 border border-[#A9A3B8]/10 rounded-xl">
+        <button
+          id="discover-subtab-explore"
+          type="button"
+          onClick={() => setInnerTab('explore')}
+          className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider ${
+            innerTab === 'explore'
+              ? 'bg-[#8A2BFF] text-white shadow-md shadow-[#8A2BFF]/20'
+              : 'text-[#A9A3B8] hover:text-white hover:bg-white/5'
+          }`}
+        >
+          Explore Campaigns
+        </button>
+        <button
+          id="discover-subtab-promote"
+          type="button"
+          onClick={() => setInnerTab('promote')}
+          className={`flex-1 py-2.5 text-xs font-black rounded-lg transition-all cursor-pointer uppercase tracking-wider ${
+            innerTab === 'promote'
+              ? 'bg-[#8A2BFF] text-white shadow-md shadow-[#8A2BFF]/20'
+              : 'text-[#A9A3B8] hover:text-white hover:bg-white/5'
+          }`}
+        >
+          Promote & Advertise
+        </button>
+      </div>
+
+      {innerTab === 'promote' ? (
+        <Promote 
+          user={user} 
+          balance={balance} 
+          onCampaignCreated={onCampaignCreated} 
+        />
+      ) : (
+        <>
+          {/* Search and Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1">
           <Search className="absolute top-3 left-3 h-3.5 w-3.5 text-[#A9A3B8]" />
@@ -173,6 +214,8 @@ export default function Discover({ onSelectCampaign }: DiscoverProps) {
             </div>
           ))}
         </div>
+      )}
+        </>
       )}
     </div>
   );
