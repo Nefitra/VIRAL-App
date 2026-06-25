@@ -6,6 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { readDb, writeDb, DatabaseSchema } from './src/server/db';
+import { initializeDbFromFirestore } from './src/server/firestoreSync';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, Claim, FraudFlag, AppConfig 
@@ -2385,6 +2386,9 @@ app.post('/api/admin/fraud/:id/resolve', adminAuthMiddleware, (req, res) => {
 
 // Serve React Frontend (Vite)
 async function startServer() {
+  // Synchronize database state with cloud Firestore before handling any requests
+  await initializeDbFromFirestore();
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

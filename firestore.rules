@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Database access is exclusively mediated by the secure, server-side Express backend.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

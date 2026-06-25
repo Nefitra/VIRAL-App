@@ -1,0 +1,230 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile inside the viral ecosystem",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "telegram_id": { "type": "string" },
+        "email": { "type": "string" },
+        "username": { "type": "string" },
+        "wallet_address": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "status": { "type": "string", "enum": ["active", "blocked"] },
+        "quality_score": { "type": "string" },
+        "viral_power": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "last_active_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "username", "role", "status", "quality_score", "viral_power", "created_at", "last_active_at"]
+    },
+    "Balance": {
+      "title": "Balance",
+      "description": "Balances for vVIRAL and real token values",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string" },
+        "vviral_balance": { "type": "number" },
+        "vviral_pending": { "type": "number" },
+        "viral_power": { "type": "number" },
+        "real_viral_balance": { "type": "number" },
+        "ton_balance_cache": { "type": "number" },
+        "gram_balance_cache": { "type": "number" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "vviral_balance", "vviral_pending", "viral_power", "real_viral_balance", "updated_at"]
+    },
+    "Resource": {
+      "title": "Resource",
+      "description": "Registered Mini App, Telegram Channel, or Web page",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "owner_user_id": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "url": { "type": "string" },
+        "description": { "type": "string" },
+        "image_url": { "type": "string" },
+        "category": { "type": "string" },
+        "language": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected", "active"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "owner_user_id", "type", "title", "url", "status", "created_at"]
+    },
+    "Campaign": {
+      "title": "Campaign",
+      "description": "Active advertising campaigns running inside the referral/incentive network",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "owner_user_id": { "type": "string" },
+        "resource_id": { "type": "string" },
+        "campaign_type": { "type": "string" },
+        "total_budget": { "type": "number" },
+        "platform_fee": { "type": "number" },
+        "escrow_budget": { "type": "number" },
+        "reward_per_action": { "type": "number" },
+        "max_actions": { "type": "number" },
+        "approved_actions": { "type": "number" },
+        "pending_actions": { "type": "number" },
+        "rejected_actions": { "type": "number" },
+        "status": { "type": "string" },
+        "start_date": { "type": "string", "format": "date-time" },
+        "end_date": { "type": "string", "format": "date-time" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "owner_user_id", "resource_id", "campaign_type", "total_budget", "reward_per_action", "status", "created_at"]
+    },
+    "CampaignEscrow": {
+      "title": "CampaignEscrow",
+      "description": "Escrow locks for funding active campaigns",
+      "type": "object",
+      "properties": {
+        "campaign_id": { "type": "string" },
+        "locked_amount": { "type": "number" },
+        "available_amount": { "type": "number" },
+        "pending_amount": { "type": "number" },
+        "paid_amount": { "type": "number" },
+        "refunded_amount": { "type": "number" },
+        "status": { "type": "string" }
+      },
+      "required": ["campaign_id", "locked_amount", "available_amount", "status"]
+    },
+    "TaskCompletion": {
+      "title": "TaskCompletion",
+      "description": "User task verification submittals",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "campaign_id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "action_type": { "type": "string" },
+        "reward_amount": { "type": "number" },
+        "referral_reward_amount": { "type": "number" },
+        "referral_reward_amount_l2": { "type": "number" },
+        "status": { "type": "string" },
+        "risk_score": { "type": "number" },
+        "verification_data": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "approved_at": { "type": "string", "format": "date-time" },
+        "rejected_at": { "type": "string", "format": "date-time" },
+        "rejection_reason": { "type": "string" }
+      },
+      "required": ["id", "campaign_id", "user_id", "reward_amount", "status", "created_at"]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Referral mapping establishing user social graph and earnings attribution",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "referrer_user_id": { "type": "string" },
+        "invited_user_id": { "type": "string" },
+        "status": { "type": "string" },
+        "total_invited_earnings": { "type": "number" },
+        "total_referrer_rewards": { "type": "number" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "referrer_user_id", "invited_user_id", "status", "total_invited_earnings", "total_referrer_rewards", "created_at"]
+    },
+    "LedgerTransaction": {
+      "title": "LedgerTransaction",
+      "description": "Secured historical ledger entries of all credits and debits",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "type": { "type": "string" },
+        "status": { "type": "string" },
+        "direction": { "type": "string", "enum": ["credit", "debit"] },
+        "related_user_id": { "type": "string" },
+        "related_campaign_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "metadata": { "type": "string" }
+      },
+      "required": ["id", "user_id", "amount", "currency", "type", "status", "direction", "created_at"]
+    },
+    "AuthProvider": {
+      "title": "AuthProvider",
+      "description": "Multi-provider connection logs",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "provider_name": { "type": "string" },
+        "provider_user_id": { "type": "string" },
+        "provider_email": { "type": "string" },
+        "provider_username": { "type": "string" },
+        "connected_at": { "type": "string", "format": "date-time" },
+        "last_used_at": { "type": "string", "format": "date-time" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "user_id", "provider_name", "provider_user_id", "connected_at", "last_used_at", "status"]
+    },
+    "ReferralAuditLog": {
+      "title": "ReferralAuditLog",
+      "description": "Comprehensive audit log of all incoming referral click events",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "start_param": { "type": "string" },
+        "user_id": { "type": "string" },
+        "username": { "type": "string" },
+        "telegram_id": { "type": "string" },
+        "referrer_user_id": { "type": "string" },
+        "referrer_username": { "type": "string" },
+        "status": { "type": "string" },
+        "details": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "start_param", "status", "created_at"]
+    }
+  },
+  "firestore": {
+    "users": {
+      "schema": "User",
+      "description": "User profiles collection"
+    },
+    "balances": {
+      "schema": "Balance",
+      "description": "User account balances collection"
+    },
+    "resources": {
+      "schema": "Resource",
+      "description": "Registered promotional resources"
+    },
+    "campaigns": {
+      "schema": "Campaign",
+      "description": "Active promotional campaigns"
+    },
+    "campaign_escrows": {
+      "schema": "CampaignEscrow",
+      "description": "Escrow locks for campaigns"
+    },
+    "task_completions": {
+      "schema": "TaskCompletion",
+      "description": "User task completions"
+    },
+    "referrals": {
+      "schema": "Referral",
+      "description": "Social graph referral trees"
+    },
+    "ledger_transactions": {
+      "schema": "LedgerTransaction",
+      "description": "Historical audit transactions list"
+    },
+    "auth_providers": {
+      "schema": "AuthProvider",
+      "description": "Connected authentication providers"
+    },
+    "referral_audit_logs": {
+      "schema": "ReferralAuditLog",
+      "description": "Auditable log of referral parameters"
+    }
+  }
+}

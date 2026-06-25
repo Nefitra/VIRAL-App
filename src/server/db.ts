@@ -5,6 +5,7 @@ import {
   TaskCompletion, Referral, LedgerTransaction, FeeWallet, 
   Claim, FraudFlag, AppConfig, AuthProvider, ReferralAuditLog
 } from '../types';
+import { syncDatabaseToFirestore } from './firestoreSync';
 
 export interface DatabaseSchema {
   users: User[];
@@ -433,6 +434,8 @@ export function writeDb(db: DatabaseSchema): void {
       fs.mkdirSync(dir, { recursive: true });
     }
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+    // Asynchronously synchronize modifications to cloud Firestore database
+    syncDatabaseToFirestore(db);
   } catch (err) {
     console.error('Error writing db.json:', err);
   }
