@@ -319,6 +319,29 @@ app.post('/api/auth/login', (req, res) => {
     existingUser.role = isNowAdmin ? 'admin' : 'user';
     existingUser.is_admin = isNowAdmin;
 
+    // Log referral click audit for existing user
+    if (referrer_id) {
+      const referrerUser = db.users.find(u => 
+        u.id === referrer_id || 
+        (u.telegram_id && u.telegram_id.toString() === referrer_id.toString()) || 
+        u.referral_code === referrer_id
+      );
+      if (!db.referral_audit_logs) db.referral_audit_logs = [];
+      db.referral_audit_logs.push({
+        id: generateId('aud'),
+        start_param: referrer_id,
+        user_id: existingUser.id,
+        username: existingUser.username,
+        telegram_id: existingUser.telegram_id,
+        referrer_user_id: referrerUser ? referrerUser.id : undefined,
+        referrer_username: referrerUser ? referrerUser.username : undefined,
+        status: 'ignored_existing_user',
+        details: `Ignored referral parameter [${referrer_id}]: User already exists in database.`,
+        created_at: new Date().toISOString()
+      });
+      console.log(`[Referral Click Log] Existing user ${existingUser.username} accessed app via startapp=${referrer_id}. Ignored referrer re-assignment.`);
+    }
+
     writeDb(db);
     const balance = db.balances.find(b => b.user_id === existingUser!.id);
     return res.json({ user: existingUser, balance });
@@ -390,28 +413,59 @@ app.post('/api/auth/login', (req, res) => {
   });
 
   // Handle invitation referrals (Section 14 with anti-abuse audits)
-  if (referrer_id && referrer_id !== newUserId) {
+  if (referrer_id) {
     const referrer = db.users.find(u => 
       u.id === referrer_id || 
       (u.telegram_id && u.telegram_id.toString() === referrer_id.toString()) || 
       u.referral_code === referrer_id
     );
-    if (referrer && referrer.status === 'active' && referrer.id !== newUserId) {
-      // De-duplicate: Ensure no existing referral record exists for this invitee
-      const existingRef = db.referrals.find(r => r.invited_user_id === newUserId);
-      if (!existingRef) {
-        db.referrals.push({
-          id: generateId('ref'),
-          referrer_user_id: referrer.id,
-          invited_user_id: newUserId,
-          status: 'active',
-          total_invited_earnings: 0,
-          total_referrer_rewards: 0,
-          created_at: new Date().toISOString()
-        });
-        console.log(`[Referral Assigned] Referrer ${referrer.username} (${referrer.id}) successfully invited ${newUser.username} (${newUser.id})`);
+
+    let auditStatus: 'referral_assigned' | 'ignored_self_referral' | 'referrer_not_found' | 'ignored_existing_user' = 'referrer_not_found';
+    let detailsStr = `Referrer with ID or parameter "${referrer_id}" not found in database.`;
+
+    if (referrer_id === newUserId) {
+      auditStatus = 'ignored_self_referral';
+      detailsStr = `Blocked self-referral for user ${newUserId}.`;
+      console.log(`[Referral Fraud Blocked] Self-referral attempt blocked for user ${newUserId}.`);
+    } else if (referrer) {
+      if (referrer.status !== 'active') {
+        detailsStr = `Referrer ${referrer.username} is not active (status: ${referrer.status}).`;
+      } else {
+        // De-duplicate: Ensure no existing referral record exists for this invitee
+        const existingRef = db.referrals.find(r => r.invited_user_id === newUserId);
+        if (!existingRef) {
+          db.referrals.push({
+            id: generateId('ref'),
+            referrer_user_id: referrer.id,
+            invited_user_id: newUserId,
+            status: 'active',
+            total_invited_earnings: 0,
+            total_referrer_rewards: 0,
+            created_at: new Date().toISOString()
+          });
+          auditStatus = 'referral_assigned';
+          detailsStr = `Referrer ${referrer.username} (${referrer.id}) successfully invited ${newUser.username} (${newUser.id}).`;
+          console.log(`[Referral Assigned] Referrer ${referrer.username} (${referrer.id}) successfully invited ${newUser.username} (${newUser.id})`);
+        } else {
+          auditStatus = 'ignored_existing_user';
+          detailsStr = `Referral record already exists for this invitee.`;
+        }
       }
     }
+
+    if (!db.referral_audit_logs) db.referral_audit_logs = [];
+    db.referral_audit_logs.push({
+      id: generateId('aud'),
+      start_param: referrer_id,
+      user_id: newUserId,
+      username: newUser.username,
+      telegram_id: newUser.telegram_id,
+      referrer_user_id: referrer ? referrer.id : undefined,
+      referrer_username: referrer ? referrer.username : undefined,
+      status: auditStatus,
+      details: detailsStr,
+      created_at: new Date().toISOString()
+    });
   }
 
   writeDb(db);

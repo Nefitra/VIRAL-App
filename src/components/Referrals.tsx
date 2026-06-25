@@ -189,7 +189,18 @@ export default function Referrals({ user }: ReferralsProps) {
               {stats.referrals.map((ref: any) => (
                 <div key={ref.id} className="flex gap-2 items-center justify-between p-2.5 rounded-lg border border-[#A9A3B8]/10 bg-[#0B0618]/40 glass hover:border-[#8A2BFF]/20 transition-all">
                   <div className="space-y-0.5 min-w-0">
-                    <div className="text-xs font-bold text-white truncate">@{ref.invited_username}</div>
+                    <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                      <span>@{ref.invited_username}</span>
+                      {ref.wallet_address ? (
+                        <span className="bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 px-1 py-0.2 rounded text-[8px] font-mono font-bold uppercase">
+                          Wallet Connected
+                        </span>
+                      ) : (
+                        <span className="bg-white/5 text-[#A9A3B8] border border-white/10 px-1 py-0.2 rounded text-[8px] font-mono uppercase">
+                          No Wallet
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="bg-[#8A2BFF]/10 text-[#B066FF] px-1 py-0.2 rounded text-[8px] font-mono font-bold uppercase">
                         {ref.invited_quality}
@@ -224,7 +235,18 @@ export default function Referrals({ user }: ReferralsProps) {
               {stats.level2Referrals.map((ref: any) => (
                 <div key={ref.id} className="flex gap-2 items-center justify-between p-2.5 rounded-lg border border-[#A9A3B8]/10 bg-[#0B0618]/40 glass hover:border-[#B066FF]/20 transition-all">
                   <div className="space-y-0.5 min-w-0">
-                    <div className="text-xs font-bold text-white truncate">@{ref.invited_username}</div>
+                    <div className="text-xs font-bold text-white truncate flex items-center gap-1.5">
+                      <span>@{ref.invited_username}</span>
+                      {ref.wallet_address ? (
+                        <span className="bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 px-1 py-0.2 rounded text-[8px] font-mono font-bold uppercase">
+                          Wallet Connected
+                        </span>
+                      ) : (
+                        <span className="bg-white/5 text-[#A9A3B8] border border-white/10 px-1 py-0.2 rounded text-[8px] font-mono uppercase">
+                          No Wallet
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="bg-[#B066FF]/10 text-[#B066FF] px-1.5 py-0.2 rounded text-[8px] font-mono font-bold uppercase">
                         Via @{ref.referred_via}

@@ -167,3 +167,17 @@ export interface AppConfig {
   claimPoolSize: number;
   isBonded: boolean; // default false, set to true after bonding is simulated
 }
+
+export interface ReferralAuditLog {
+  id: string;
+  start_param: string;
+  user_id?: string;
+  username?: string;
+  telegram_id?: string;
+  referrer_user_id?: string;
+  referrer_username?: string;
+  status: 'referral_assigned' | 'ignored_existing_user' | 'ignored_self_referral' | 'referrer_not_found' | 'error' | 'click_logged';
+  details?: string;
+  created_at: string;
+}
+

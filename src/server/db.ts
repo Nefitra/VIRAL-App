@@ -3,7 +3,7 @@ import path from 'path';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, FeeWallet, 
-  Claim, FraudFlag, AppConfig, AuthProvider
+  Claim, FraudFlag, AppConfig, AuthProvider, ReferralAuditLog
 } from '../types';
 
 export interface DatabaseSchema {
@@ -20,6 +20,7 @@ export interface DatabaseSchema {
   fraud_flags: FraudFlag[];
   config: AppConfig;
   auth_providers: AuthProvider[];
+  referral_audit_logs?: ReferralAuditLog[];
 }
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
@@ -398,7 +399,8 @@ const INITIAL_DB: DatabaseSchema = {
       last_used_at: new Date().toISOString(),
       status: 'active'
     }
-  ]
+  ],
+  referral_audit_logs: []
 };
 
 export function readDb(): DatabaseSchema {
@@ -413,7 +415,11 @@ export function readDb(): DatabaseSchema {
       return INITIAL_DB;
     }
     const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (!parsed.referral_audit_logs) {
+      parsed.referral_audit_logs = [];
+    }
+    return parsed;
   } catch (err) {
     console.error('Error reading db.json:', err);
     return INITIAL_DB;
