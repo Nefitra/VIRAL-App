@@ -93,6 +93,42 @@ const getTelegramUserFromInitData = (initDataStr: string | undefined) => {
   return parseAndValidateTelegramInitData(initDataStr, botToken);
 };
 
+// Immediately sends Telegram bot notifications to all configured admin IDs
+const sendTelegramAdminNotification = async (text: string) => {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) {
+    console.warn('[Telegram Notification] Cannot send notification. TELEGRAM_BOT_TOKEN is not configured in the environment.');
+    return;
+  }
+
+  const adminIds = ['8618331744', '6228196481', '5314622858'];
+  console.log(`[Telegram Notification] Attempting to send notification to admins: ${adminIds.join(', ')}`);
+
+  for (const adminId of adminIds) {
+    try {
+      const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: adminId,
+          text: text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[Telegram Notification] Failed to send message to admin ${adminId}:`, errorText);
+      } else {
+        console.log(`[Telegram Notification] Successfully notified admin ${adminId}`);
+      }
+    } catch (err) {
+      console.error(`[Telegram Notification] Network error sending message to admin ${adminId}:`, err);
+    }
+  }
+};
+
 // Admin verification middleware
 const adminAuthMiddleware = async (req: any, res: any, next: any) => {
   const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
@@ -304,6 +340,15 @@ app.post('/api/auth/login', async (req, res) => {
     }
     if (provName === 'telegram' && finalTgId && !existingUser.telegram_id) {
       existingUser.telegram_id = finalTgId;
+    }
+
+    // Stabilize and update user's username if Telegram provides a real username for the same ID
+    if (provName === 'telegram' && (decodedUsername || username)) {
+      const newUsername = decodedUsername || username;
+      if (existingUser.username !== newUsername) {
+        console.log(`[Username Sync] Updating stable username for TG ID ${existingUser.telegram_id || finalTgId} from "${existingUser.username}" to "${newUsername}"`);
+        existingUser.username = newUsername;
+      }
     }
 
     // Keep auth provider updated
@@ -1239,12 +1284,20 @@ app.post('/api/balances/send', async (req, res) => {
 // 6. Resources Directory (Earn list and user promoted items)
 app.get('/api/resources', (req, res) => {
   const db = readDb();
-  const { userId } = req.query;
+  const { userId, all } = req.query;
 
   if (userId) {
     // If user is requestor, return all their items
     const userResources = db.resources.filter(r => r.owner_user_id === userId);
     return res.json(userResources);
+  }
+
+  // Return all resources if caller is an admin (for auditing/approvals)
+  const callerTgId = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'];
+  const isAdmin = all === 'true' || (callerTgId && ADMIN_TELEGRAM_IDS.includes(callerTgId.toString()));
+
+  if (isAdmin) {
+    return res.json(db.resources);
   }
 
   // Otherwise return active/approved resources
@@ -1255,7 +1308,7 @@ app.get('/api/resources', (req, res) => {
 // 7. Add Resource to promote
 app.post('/api/resources/add', async (req, res) => {
   const db = readDb();
-  const { owner_user_id, type, title, url, description, image_url, category, language } = req.body;
+  const { owner_user_id, type, title, url, description, image_url, category, language, budget_package } = req.body;
 
   if (!owner_user_id || !type || !title || !url || !description) {
     return res.status(400).json({ error: 'All primary fields are required.' });
@@ -1279,6 +1332,11 @@ app.post('/api/resources/add', async (req, res) => {
     status: user.role === 'admin' ? 'approved' : 'pending', // Admins auto-approve
     created_at: new Date().toISOString()
   };
+
+  // Add metadata fields for approval request compliance
+  (newResource as any).telegram_id = user.telegram_id || 'unknown';
+  (newResource as any).username = user.username || 'unknown';
+  (newResource as any).budget_package = budget_package || 'Standard Listing';
 
   db.resources.push(newResource);
   
@@ -1304,6 +1362,23 @@ app.post('/api/resources/add', async (req, res) => {
     }
   }
 
+  // Send immediate Telegram admin notification if submitted by a regular user
+  if (user.role !== 'admin') {
+    const text = `<b>🔔 New Promotion Resource Approval Request</b>\n\n` +
+      `👤 <b>User:</b> @${user.username || 'unknown'} (ID: <code>${user.telegram_id || 'unknown'}</code>)\n` +
+      `📌 <b>Project Name:</b> ${title}\n` +
+      `🔗 <b>Link:</b> ${url}\n` +
+      `🏷️ <b>Type:</b> <code>${type}</code>\n` +
+      `🗂️ <b>Category:</b> ${category || 'General'}\n` +
+      `📝 <b>Description:</b> ${description}\n` +
+      `⏳ <b>Status:</b> <code>pending_admin_approval</code>\n` +
+      `📅 <b>Date/Time:</b> ${new Date().toLocaleString()}\n\n` +
+      `👉 <i>Instruction: Go to the Admin Panel in the App to approve or reject this project resource.</i>`;
+    sendTelegramAdminNotification(text).catch(err => {
+      console.error('[Telegram Notification] Error calling sendTelegramAdminNotification:', err);
+    });
+  }
+
   await writeDb(db);
   res.json({ success: true, resource: newResource, rewardEarned });
 });
@@ -1312,7 +1387,7 @@ app.post('/api/resources/add', async (req, res) => {
 app.post('/api/resources/:id/approve', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { id } = req.params;
-  const { status } = req.body; // 'approved' | 'rejected'
+  const { status, reason } = req.body; // 'approved' | 'rejected' and optional custom rejection reason
 
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
@@ -1324,6 +1399,13 @@ app.post('/api/resources/:id/approve', adminAuthMiddleware, async (req, res) => 
   }
 
   db.resources[resIndex].status = status;
+  if (status === 'rejected') {
+    (db.resources[resIndex] as any).rejection_reason = reason || 'Does not meet ecosystem quality standards.';
+  } else if (status === 'approved') {
+    // Clear any previous rejection reasons on approval
+    delete (db.resources[resIndex] as any).rejection_reason;
+  }
+
   await writeDb(db);
   res.json({ success: true, resource: db.resources[resIndex] });
 });

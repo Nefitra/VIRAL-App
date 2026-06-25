@@ -80,8 +80,48 @@ export async function initializeDbFromFirestore(): Promise<void> {
       const snapshot = await firestore.collection(item.collection).get();
       
       const list: any[] = [];
+      const bannedUserIds = ['promoter-1', 'earner-1'];
+      const bannedUsernames = ['TON_Sniper', 'Web3Builder'];
+      const bannedCampaignIds = ['camp-1', 'camp-2'];
+      const bannedResourceIds = ['res-1', 'res-2', 'res-3'];
+      const bannedTaskIds = ['task-c1', 'task-c2', 'task-c-rejected-1'];
+      const bannedReferralIds = ['ref-0', 'ref-1'];
+      const bannedFraudIds = ['fraud-1', 'fraud-2'];
+      const bannedAuthProvIds = ['prov-promoter-tg'];
+
       snapshot.forEach(doc => {
-        list.push(doc.data());
+        const data = doc.data();
+        let isBanned = false;
+
+        // Skip and delete banned mock items from Firestore
+        if (item.collection === 'users' && (bannedUserIds.includes(data.id) || bannedUsernames.includes(data.username))) {
+          isBanned = true;
+        } else if (item.collection === 'balances' && bannedUserIds.includes(data.user_id)) {
+          isBanned = true;
+        } else if (item.collection === 'resources' && (bannedResourceIds.includes(data.id) || bannedUserIds.includes(data.owner_user_id))) {
+          isBanned = true;
+        } else if (item.collection === 'campaigns' && (bannedCampaignIds.includes(data.id) || bannedUserIds.includes(data.owner_user_id))) {
+          isBanned = true;
+        } else if (item.collection === 'campaign_escrows' && bannedCampaignIds.includes(data.campaign_id)) {
+          isBanned = true;
+        } else if (item.collection === 'task_completions' && (bannedTaskIds.includes(data.id) || bannedUserIds.includes(data.user_id))) {
+          isBanned = true;
+        } else if (item.collection === 'referrals' && (bannedReferralIds.includes(data.id) || bannedUserIds.includes(data.referrer_user_id) || bannedUserIds.includes(data.invited_user_id))) {
+          isBanned = true;
+        } else if (item.collection === 'fraud_flags' && (bannedFraudIds.includes(data.id) || bannedUserIds.includes(data.user_id))) {
+          isBanned = true;
+        } else if (item.collection === 'auth_providers' && (bannedAuthProvIds.includes(data.id) || bannedUserIds.includes(data.user_id))) {
+          isBanned = true;
+        }
+
+        if (isBanned) {
+          console.log(`[Firestore Cleanup] Purging mock item from cloud "${item.collection}": ${doc.id}`);
+          firestore.collection(item.collection).doc(doc.id).delete().catch(err => {
+            console.error(`[Firestore Cleanup] Error deleting doc ${doc.id}:`, err);
+          });
+        } else {
+          list.push(data);
+        }
       });
 
       if (list.length > 0) {

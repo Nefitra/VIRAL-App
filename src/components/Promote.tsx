@@ -470,6 +470,11 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
                     <span className="rounded bg-[#8A2BFF]/10 border border-[#8A2BFF]/20 text-[#B066FF] px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase mt-0.5 inline-block">
                       {res.type}
                     </span>
+                    {res.status === 'rejected' && (res as any).rejection_reason && (
+                      <p className="text-[10px] text-[#FF4D6D] mt-1 font-sans italic leading-tight">
+                        Reason: {(res as any).rejection_reason}
+                      </p>
+                    )}
                   </div>
                 </div>
 
