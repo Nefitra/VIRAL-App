@@ -2359,6 +2359,64 @@ app.get('/api/admin/users', adminAuthMiddleware, (req, res) => {
   res.json(usersWithBalances);
 });
 
+app.get('/api/admin/campaigns', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  const campaignsWithResourcesAndEscrow = db.campaigns.map(camp => {
+    const resource = db.resources.find(r => r.id === camp.resource_id);
+    const escrow = db.campaign_escrows.find(e => e.campaign_id === camp.id);
+    const advertiser = db.users.find(u => u.id === camp.owner_user_id);
+    return {
+      ...camp,
+      resource,
+      escrow,
+      advertiser_username: advertiser ? advertiser.username : 'Unknown'
+    };
+  });
+  res.json(campaignsWithResourcesAndEscrow);
+});
+
+app.get('/api/admin/escrows', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  const escrowsWithCampaigns = db.campaign_escrows.map(esc => {
+    const camp = db.campaigns.find(c => c.id === esc.campaign_id);
+    const resource = camp ? db.resources.find(r => r.id === camp.resource_id) : null;
+    const depositor = camp ? db.users.find(u => u.id === camp.owner_user_id) : null;
+    return {
+      ...esc,
+      campaign_title: resource ? resource.title : (camp ? camp.campaign_type : 'Unknown Campaign'),
+      depositor_username: depositor ? depositor.username : 'Unknown',
+      depositor_wallet: depositor ? depositor.wallet_address : ''
+    };
+  });
+  res.json(escrowsWithCampaigns);
+});
+
+app.get('/api/admin/referrals', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  const referralsWithUsernames = db.referrals.map(ref => {
+    const referrer = db.users.find(u => u.id === ref.referrer_user_id);
+    const invited = db.users.find(u => u.id === ref.invited_user_id);
+    return {
+      ...ref,
+      referrer_username: referrer ? referrer.username : 'Unknown',
+      invited_username: invited ? invited.username : 'Unknown'
+    };
+  });
+  res.json(referralsWithUsernames);
+});
+
+app.get('/api/admin/claims', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  const claimsWithUsernames = db.claims.map(claim => {
+    const user = db.users.find(u => u.id === claim.user_id);
+    return {
+      ...claim,
+      username: user ? user.username : 'Unknown'
+    };
+  });
+  res.json(claimsWithUsernames);
+});
+
 app.post('/api/admin/users/:userId/status', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { userId } = req.params;

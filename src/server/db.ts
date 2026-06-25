@@ -32,7 +32,7 @@ export const INITIAL_DB: DatabaseSchema = {
       id: 'admin-1',
       telegram_id: '8618331744',
       email: 'beskerboris@gmail.com',
-      username: 'viral_creator',
+      username: 'admin_system',
       wallet_address: 'EQA_VIRAL_Creator_wallet_address_xyz',
       role: 'admin',
       status: 'active',
@@ -84,7 +84,7 @@ export const INITIAL_DB: DatabaseSchema = {
       user_id: 'admin-1',
       provider_name: 'telegram',
       provider_user_id: '8618331744',
-      provider_username: 'viral_creator',
+      provider_username: 'admin_system',
       connected_at: new Date('2026-06-01T00:00:00.000Z').toISOString(),
       last_used_at: new Date().toISOString(),
       status: 'active'

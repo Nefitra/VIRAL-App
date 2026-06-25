@@ -29,6 +29,37 @@ let lastSyncedDb: DatabaseSchema | null = null;
 let isCloudDbAvailable = true;
 
 /**
+ * Strip out any mock/seeded/banned records from any DatabaseSchema object.
+ */
+export function filterBannedRecords(db: DatabaseSchema): DatabaseSchema {
+  const bannedUserIds = ['promoter-1', 'earner-1'];
+  const bannedUsernames = ['TON_Sniper', 'Web3Builder', 'viral_creator', 'promoter-1', 'earner-1'];
+  const bannedCampaignIds = ['camp-1', 'camp-2'];
+  const bannedResourceIds = ['res-1', 'res-2', 'res-3'];
+  const bannedTaskIds = ['task-c1', 'task-c2', 'task-c-rejected-1'];
+  const bannedReferralIds = ['ref-0', 'ref-1'];
+  const bannedFraudIds = ['fraud-1', 'fraud-2'];
+  const bannedAuthProvIds = ['prov-promoter-tg'];
+
+  const filtered = {
+    ...db,
+    users: (db.users || []).filter(u => u && !bannedUserIds.includes(u.id) && !bannedUsernames.includes(u.username || '')),
+    balances: (db.balances || []).filter(b => b && !bannedUserIds.includes(b.user_id)),
+    resources: (db.resources || []).filter(r => r && !bannedResourceIds.includes(r.id) && !bannedUserIds.includes(r.owner_user_id)),
+    campaigns: (db.campaigns || []).filter(c => c && !bannedCampaignIds.includes(c.id) && !bannedUserIds.includes(c.owner_user_id)),
+    campaign_escrows: (db.campaign_escrows || []).filter(e => e && !bannedCampaignIds.includes(e.campaign_id)),
+    task_completions: (db.task_completions || []).filter(tc => tc && !bannedTaskIds.includes(tc.id) && !bannedUserIds.includes(tc.user_id)),
+    referrals: (db.referrals || []).filter(ref => ref && !bannedReferralIds.includes(ref.id) && !bannedUserIds.includes(ref.referrer_user_id) && !bannedUserIds.includes(ref.invited_user_id)),
+    ledger_transactions: (db.ledger_transactions || []).filter(tx => tx && !bannedUserIds.includes(tx.user_id || '') && !bannedUserIds.includes(tx.related_user_id || '') && !bannedCampaignIds.includes(tx.related_campaign_id || '')),
+    claims: (db.claims || []).filter(claim => claim && !bannedUserIds.includes(claim.user_id)),
+    fraud_flags: (db.fraud_flags || []).filter(flag => flag && !bannedUserIds.includes(flag.user_id) && !bannedFraudIds.includes(flag.id)),
+    auth_providers: (db.auth_providers || []).filter(ap => ap && !bannedAuthProvIds.includes(ap.id) && !bannedUserIds.includes(ap.user_id)),
+  };
+
+  return filtered as DatabaseSchema;
+}
+
+/**
  * Array of all list collections to sync.
  * Mapping of database property name to Firestore collection name and its unique identifier field.
  */
@@ -159,11 +190,11 @@ export async function initializeDbFromFirestore(): Promise<void> {
       let localDb: DatabaseSchema | null = null;
       if (fs.existsSync(DB_PATH)) {
         try {
-          localDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+          localDb = filterBannedRecords(JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')));
         } catch (e) {}
       }
 
-      const mergedDb: DatabaseSchema = {
+      const mergedDb: DatabaseSchema = filterBannedRecords({
         users: freshDb.users || [],
         balances: freshDb.balances || [],
         resources: freshDb.resources || [],
@@ -192,7 +223,7 @@ export async function initializeDbFromFirestore(): Promise<void> {
         },
         auth_providers: freshDb.auth_providers || [],
         referral_audit_logs: freshDb.referral_audit_logs || [],
-      };
+      });
 
       if (fallbackEnabled) {
         fs.writeFileSync(DB_PATH, JSON.stringify(mergedDb, null, 2), 'utf-8');
@@ -202,10 +233,10 @@ export async function initializeDbFromFirestore(): Promise<void> {
       setInMemoryDb(mergedDb);
     } else {
       console.log('[Firestore Sync] Firestore database is currently empty. Seeding Firestore using initial database...');
-      let seedDb: DatabaseSchema = INITIAL_DB;
+      let seedDb: DatabaseSchema = filterBannedRecords(INITIAL_DB);
       if (fs.existsSync(DB_PATH)) {
         try {
-          seedDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DatabaseSchema;
+          seedDb = filterBannedRecords(JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DatabaseSchema);
         } catch (err) {
           console.error('[Firestore Sync] Error parsing local DB to seed Firestore:', err);
         }
@@ -230,14 +261,14 @@ export async function initializeDbFromFirestore(): Promise<void> {
     // On failure in dev, load from local file to ensure app uptime
     if (fs.existsSync(DB_PATH)) {
       try {
-        const localDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+        const localDb = filterBannedRecords(JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')));
         lastSyncedDb = JSON.parse(JSON.stringify(localDb));
         setInMemoryDb(localDb);
       } catch (e) {
-        setInMemoryDb(INITIAL_DB);
+        setInMemoryDb(filterBannedRecords(INITIAL_DB));
       }
     } else {
-      setInMemoryDb(INITIAL_DB);
+      setInMemoryDb(filterBannedRecords(INITIAL_DB));
     }
   }
 }

@@ -19,6 +19,13 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const [loading, setLoading] = useState(true);
   const [currentAdminTab, setCurrentAdminTab] = useState<'status' | 'users' | 'resources' | 'campaigns' | 'escrow' | 'rewards' | 'referrals' | 'fraud' | 'feewallet' | 'claim' | 'settings' | 'logs'>('status');
 
+  // Real Database Lists States
+  const [usersList, setUsersList] = useState<any[]>([]);
+  const [campaignsList, setCampaignsList] = useState<any[]>([]);
+  const [escrowsList, setEscrowsList] = useState<any[]>([]);
+  const [referralsList, setReferralsList] = useState<any[]>([]);
+  const [claimsList, setClaimsList] = useState<any[]>([]);
+
   // Form Configurations
   const [starterBonusInput, setStarterBonusInput] = useState('');
   const [feePercentInput, setFeePercentInput] = useState('');
@@ -63,18 +70,28 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const fetchAdminData = () => {
     setLoading(true);
     
-    // Fetch stats
+    // Fetch stats and all administrative database lists
     Promise.all([
       adminFetch('/api/admin/stats').then(res => res.json()),
-      adminFetch('/api/resources').then(res => res.json()),
+      adminFetch('/api/resources?all=true').then(res => res.json()),
       adminFetch('/api/admin/completions').then(res => res.json()),
-      adminFetch('/api/admin/fraud').then(res => res.json())
+      adminFetch('/api/admin/fraud').then(res => res.json()),
+      adminFetch('/api/admin/users').then(res => res.json()),
+      adminFetch('/api/admin/campaigns').then(res => res.json()),
+      adminFetch('/api/admin/escrows').then(res => res.json()),
+      adminFetch('/api/admin/referrals').then(res => res.json()),
+      adminFetch('/api/admin/claims').then(res => res.json())
     ])
-      .then(([statsData, resourcesData, completionsData, fraudData]) => {
+      .then(([statsData, resourcesData, completionsData, fraudData, usersData, campaignsData, escrowsData, referralsData, claimsData]) => {
         setStats(statsData);
         setResources(resourcesData.filter((r: any) => r.status === 'pending'));
         setCompletions(completionsData);
         setFraudFlags(fraudData.filter((f: any) => f.status === 'pending'));
+        setUsersList(usersData || []);
+        setCampaignsList(campaignsData || []);
+        setEscrowsList(escrowsData || []);
+        setReferralsList(referralsData || []);
+        setClaimsList(claimsData || []);
         
         setStarterBonusInput(statsData.config?.starterBonus?.toString() || '100');
         setFeePercentInput(statsData.config?.platformFeePercent?.toString() || '10');
@@ -156,6 +173,17 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action })
+    })
+      .then(res => res.json())
+      .then(() => fetchAdminData())
+      .catch(err => console.error(err));
+  };
+
+  const handleUpdateUserStatus = (userId: string, status: string, quality_score: string) => {
+    adminFetch(`/api/admin/users/${userId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, quality_score })
     })
       .then(res => res.json())
       .then(() => fetchAdminData())
@@ -350,55 +378,50 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                    <td className="py-3 px-1 text-[#FFD36A] font-bold">@TON_Sniper</td>
-                    <td className="py-3 px-1">8618331744</td>
-                    <td className="py-3 px-1"><span className="bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20 px-1.5 py-0.2 rounded uppercase text-[9px] font-bold">Admin</span></td>
-                    <td className="py-3 px-1 text-[#38F8B0]">Partner (High)</td>
-                    <td className="py-3 px-1 text-right">
-                      <span className="text-[#38F8B0] text-[10px]">Authorized Admin</span>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                    <td className="py-3 px-1 text-white">@vVIRAL_whale</td>
-                    <td className="py-3 px-1">6228196481</td>
-                    <td className="py-3 px-1"><span className="bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20 px-1.5 py-0.2 rounded uppercase text-[9px] font-bold">Admin</span></td>
-                    <td className="py-3 px-1 text-[#38F8B0]">Partner (High)</td>
-                    <td className="py-3 px-1 text-right">
-                      <span className="text-[#38F8B0] text-[10px]">Authorized Admin</span>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                    <td className="py-3 px-1 text-white">@Earn_Pro</td>
-                    <td className="py-3 px-1">5314622858</td>
-                    <td className="py-3 px-1"><span className="bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20 px-1.5 py-0.2 rounded uppercase text-[9px] font-bold">Admin</span></td>
-                    <td className="py-3 px-1 text-[#38F8B0]">Partner (High)</td>
-                    <td className="py-3 px-1 text-right">
-                      <span className="text-[#38F8B0] text-[10px]">Authorized Admin</span>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                    <td className="py-3 px-1 text-[#A9A3B8]">@bot_spammer_32</td>
-                    <td className="py-3 px-1">1122334455</td>
-                    <td className="py-3 px-1">user</td>
-                    <td className="py-3 px-1 text-[#FF4D6D]">Flagged (Low)</td>
-                    <td className="py-3 px-1 text-right">
-                      <button className="bg-[#FF4D6D]/15 text-[#FF4D6D] border border-[#FF4D6D]/20 px-2 py-0.5 rounded hover:bg-[#FF4D6D]/30 transition-all text-[9px] cursor-pointer">
-                        Suspend
-                      </button>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                    <td className="py-3 px-1 text-white">@TON_promoter</td>
-                    <td className="py-3 px-1">9876543210</td>
-                    <td className="py-3 px-1">user</td>
-                    <td className="py-3 px-1 text-white">Standard</td>
-                    <td className="py-3 px-1 text-right">
-                      <button className="bg-[#8A2BFF]/15 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded hover:bg-[#8A2BFF]/30 transition-all text-[9px] cursor-pointer">
-                        Level Up Quality
-                      </button>
-                    </td>
-                  </tr>
+                  {usersList.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-[#A9A3B8] italic">
+                        No real production data yet
+                      </td>
+                    </tr>
+                  ) : (
+                    usersList.map((usr) => (
+                      <tr key={usr.id} className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
+                        <td className="py-3 px-1 text-white font-bold">{usr.username ? `@${usr.username.replace(/^@/, '')}` : 'Unnamed User'}</td>
+                        <td className="py-3 px-1">{usr.telegram_id || 'N/A'}</td>
+                        <td className="py-3 px-1">
+                          <span className={`px-1.5 py-0.2 rounded uppercase text-[9px] font-bold ${usr.role === 'admin' ? 'bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20' : 'bg-gray-800 text-gray-400'}`}>
+                            {usr.role || 'user'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-1">
+                          <span className={usr.quality_score === 'High-Risk User' || usr.quality_score === 'Blocked User' || usr.status === 'suspended' ? 'text-[#FF4D6D]' : 'text-[#38F8B0]'}>
+                            {usr.quality_score || 'Standard'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-1 text-right space-x-1">
+                          {usr.role !== 'admin' ? (
+                            <>
+                              <button
+                                onClick={() => handleUpdateUserStatus(usr.id, 'active', 'Partner')}
+                                className="bg-[#8A2BFF]/15 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded hover:bg-[#8A2BFF]/30 transition-all text-[9px] cursor-pointer"
+                              >
+                                Level Up
+                              </button>
+                              <button
+                                onClick={() => handleUpdateUserStatus(usr.id, 'suspended', 'Blocked User')}
+                                className="bg-[#FF4D6D]/15 text-[#FF4D6D] border border-[#FF4D6D]/20 px-2 py-0.5 rounded hover:bg-[#FF4D6D]/30 transition-all text-[9px] cursor-pointer"
+                              >
+                                Suspend
+                              </button>
+                            </>
+                          ) : (
+                            <span className="text-[#38F8B0] text-[10px]">Authorized Admin</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -470,41 +493,28 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
             </p>
 
             <div className="space-y-3 font-mono text-xs">
-              <div className="p-3 bg-[#05020D] rounded-lg border border-[#A9A3B8]/5 space-y-2">
-                <div className="flex justify-between items-center border-b border-[#A9A3B8]/5 pb-1">
-                  <span className="text-white font-bold">Campaign #1: Telegram Channel Join Promo</span>
-                  <span className="bg-[#38F8B0]/10 text-[#38F8B0] text-[9px] px-1.5 py-0.2 rounded">Active</span>
+              {campaignsList.length === 0 ? (
+                <div className="p-3.5 bg-[#05020D]/60 border border-[#A9A3B8]/5 rounded-lg text-center text-[#A9A3B8] italic">
+                  No real production data yet
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-[#A9A3B8] text-[11px]">
-                  <div>Advertiser: @vVIRAL_whale</div>
-                  <div>Budget remaining: 45,000 vVIRAL</div>
-                  <div>Cost-per-action: 50 vVIRAL</div>
-                  <div>Total actions recorded: 900 joins</div>
-                </div>
-                <div className="flex justify-end gap-1.5 pt-1.5">
-                  <button className="bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/10 px-2 py-1 rounded text-[10px] cursor-pointer">
-                    Force Pause
-                  </button>
-                </div>
-              </div>
-
-              <div className="p-3 bg-[#05020D] rounded-lg border border-[#A9A3B8]/5 space-y-2">
-                <div className="flex justify-between items-center border-b border-[#A9A3B8]/5 pb-1">
-                  <span className="text-white font-bold">Campaign #2: Retweet on X Task</span>
-                  <span className="bg-[#FFD36A]/10 text-[#FFD36A] text-[9px] px-1.5 py-0.2 rounded">Suspended</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-[#A9A3B8] text-[11px]">
-                  <div>Advertiser: @Earn_Pro</div>
-                  <div>Budget remaining: 15,000 vVIRAL</div>
-                  <div>Cost-per-action: 25 vVIRAL</div>
-                  <div>Suspicious flags: 3 risk alerts</div>
-                </div>
-                <div className="flex justify-end gap-1.5 pt-1.5">
-                  <button className="bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/10 px-2 py-1 rounded text-[10px] cursor-pointer">
-                    Force Activate
-                  </button>
-                </div>
-              </div>
+              ) : (
+                campaignsList.map((camp) => (
+                  <div key={camp.id} className="p-3 bg-[#05020D] rounded-lg border border-[#A9A3B8]/5 space-y-2">
+                    <div className="flex justify-between items-center border-b border-[#A9A3B8]/5 pb-1">
+                      <span className="text-white font-bold">{camp.resource?.title || camp.campaign_type || `Campaign #${camp.id}`}</span>
+                      <span className={`text-[9px] px-1.5 py-0.2 rounded uppercase ${camp.status === 'active' ? 'bg-[#38F8B0]/10 text-[#38F8B0]' : 'bg-[#FF4D6D]/10 text-[#FF4D6D]'}`}>
+                        {camp.status || 'Active'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-[#A9A3B8] text-[11px]">
+                      <div>Advertiser: @{camp.advertiser_username || 'Unknown'}</div>
+                      <div>Budget remaining: {(camp.remaining_budget || 0).toLocaleString()} vVIRAL</div>
+                      <div>Cost-per-action: {camp.reward_per_action || 0} vVIRAL</div>
+                      <div>Total budget: {(camp.total_budget || 0).toLocaleString()} vVIRAL</div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -521,26 +531,28 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
             </p>
 
             <div className="space-y-3 font-mono text-xs">
-              <div className="bg-[#05020D] p-4 rounded-lg border border-[#A9A3B8]/5 space-y-2.5">
-                <div className="flex justify-between items-center border-b border-[#A9A3B8]/10 pb-1.5">
-                  <span className="text-white font-extrabold">Active Escrow: ESCR-90401</span>
-                  <span className="text-[#FFD36A] text-[10px] font-bold">LOCKED</span>
+              {escrowsList.length === 0 ? (
+                <div className="p-3.5 bg-[#05020D]/60 border border-[#A9A3B8]/5 rounded-lg text-center text-[#A9A3B8] italic">
+                  No real production data yet
                 </div>
-                <div className="text-[11px] text-[#A9A3B8] space-y-1">
-                  <div>- Secured Deposit: <strong className="text-white">125,000 vVIRAL</strong></div>
-                  <div>- Associated Campaign: <strong className="text-white">Join Telegram Channel</strong></div>
-                  <div>- Depositor Wallet: <strong className="text-white">UQAr4...b19_whale</strong></div>
-                  <div>- Dispute status: <span className="text-[#38F8B0] font-bold">Healthy (0 disputes)</span></div>
-                </div>
-                <div className="flex gap-2 pt-2">
-                  <button className="bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 rounded px-2.5 py-1 text-[10px] font-bold cursor-pointer transition-all">
-                    Release to Earners
-                  </button>
-                  <button className="bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/20 rounded px-2.5 py-1 text-[10px] font-bold cursor-pointer transition-all">
-                    Refund Depositor
-                  </button>
-                </div>
-              </div>
+              ) : (
+                escrowsList.map((esc) => (
+                  <div key={esc.campaign_id} className="bg-[#05020D] p-4 rounded-lg border border-[#A9A3B8]/5 space-y-2.5">
+                    <div className="flex justify-between items-center border-b border-[#A9A3B8]/10 pb-1.5">
+                      <span className="text-white font-extrabold">Escrow ID: {esc.campaign_id}</span>
+                      <span className={`text-[10px] font-bold ${esc.status === 'locked' ? 'text-[#FFD36A]' : 'text-[#38F8B0]'}`}>
+                        {(esc.status || 'LOCKED').toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#A9A3B8] space-y-1">
+                      <div>- Secured Deposit: <strong className="text-white">{(esc.amount || 0).toLocaleString()} vVIRAL</strong></div>
+                      <div>- Associated Campaign: <strong className="text-white">{esc.campaign_title || 'Unknown'}</strong></div>
+                      <div>- Depositor Username: <strong className="text-white">@{esc.depositor_username || 'Unknown'}</strong></div>
+                      <div>- Depositor Wallet: <strong className="text-white font-mono">{esc.depositor_wallet || 'No wallet'}</strong></div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
@@ -615,7 +627,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                 </div>
                 <div className="p-3 bg-[#05020D] border border-[#A9A3B8]/5 rounded-lg text-center">
                   <span className="text-[9px] text-[#A9A3B8] uppercase block">Active Referrers</span>
-                  <span className="text-[#38F8B0] text-base font-extrabold font-mono">245 referrers</span>
+                  <span className="text-[#38F8B0] text-base font-extrabold font-mono">{referralsList.length} referrers</span>
                 </div>
                 <div className="p-3 bg-[#05020D] border border-[#A9A3B8]/5 rounded-lg text-center">
                   <span className="text-[9px] text-[#A9A3B8] uppercase block">Average Invites Loop</span>
@@ -625,6 +637,24 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
 
               <div className="p-3.5 bg-[#05020D]/60 border border-[#A9A3B8]/5 rounded-lg text-xs leading-relaxed text-[#A9A3B8]">
                 <strong>Virality Control Engine:</strong> Auto-verify invite trees for fraud cycles (e.g. self-referrals). If duplicate IP or telemetry signature matches, viral power is auto-clamped to zero.
+              </div>
+
+              <div className="p-4 bg-[#05020D]/80 rounded-lg border border-[#A9A3B8]/5 space-y-3">
+                <span className="text-[10px] text-white block font-bold uppercase border-b border-[#A9A3B8]/10 pb-1">Referral Generation Records</span>
+                <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                  {referralsList.length === 0 ? (
+                    <div className="text-center text-[#A9A3B8] italic py-3 text-[11px]">No real production data yet</div>
+                  ) : (
+                    referralsList.map((ref) => (
+                      <div key={ref.id} className="flex justify-between text-[11px] text-[#A9A3B8] border-b border-[#A9A3B8]/5 pb-1.5 last:border-0">
+                        <div>
+                          <strong>@{ref.referrer_username}</strong> invited <strong>@{ref.invited_username}</strong>
+                        </div>
+                        <div className="text-white font-mono">{new Date(ref.created_at).toLocaleDateString()}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -840,7 +870,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                   <div>- Mini App Claim Status: <strong className="text-white">{stats?.config?.isBonded ? 'UNLOCKED' : 'LOCKED (Pre-Bonding)'}</strong></div>
                   <div>- Minimum withdrawal: <strong className="text-white">100 vVIRAL</strong></div>
                   <div>- Active claimed tokens: <strong className="text-white">0 vVIRAL (None)</strong></div>
-                  <div>- Pending request ledger: <strong className="text-white">0 requests</strong></div>
+                  <div>- Pending request ledger: <strong className="text-white">{claimsList.length} requests</strong></div>
                 </div>
               </div>
 
@@ -852,6 +882,24 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                 <button className="w-full bg-[#FFD36A] hover:bg-[#FF9F1C] text-black font-extrabold py-1.5 rounded text-[10px] cursor-pointer transition-all uppercase font-mono">
                   Trigger Airdrop Sequence
                 </button>
+              </div>
+            </div>
+
+            <div className="p-4 bg-[#05020D]/80 rounded-lg border border-[#A9A3B8]/5 space-y-3 mt-4 text-xs font-mono">
+              <span className="text-[10px] text-[#FFD36A] block font-bold uppercase border-b border-[#A9A3B8]/10 pb-1">Earner Claims Log</span>
+              <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                {claimsList.length === 0 ? (
+                  <div className="text-center text-[#A9A3B8] italic py-3 text-[11px]">No real production data yet</div>
+                ) : (
+                  claimsList.map((claim) => (
+                    <div key={claim.id} className="flex justify-between text-[11px] text-[#A9A3B8] border-b border-[#A9A3B8]/5 pb-1.5 last:border-0">
+                      <div>
+                        User <strong>@{claim.username}</strong> requested to claim <strong>{(claim.amount || 0).toLocaleString()} vVIRAL</strong>
+                      </div>
+                      <div className={`font-bold uppercase ${claim.status === 'completed' ? 'text-[#38F8B0]' : 'text-[#FFD36A]'}`}>{claim.status || 'Pending'}</div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
