@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Plus, ShieldAlert, Coins, Sparkles, PlusCircle, LayoutGrid, CheckCircle } from 'lucide-react';
+import { Rocket, Plus, ShieldAlert, Coins, Sparkles, PlusCircle, LayoutGrid, CheckCircle, ArrowLeft } from 'lucide-react';
 import { User, Balance, Resource } from '../types';
 import { useToast } from './Toast';
 
@@ -7,9 +7,10 @@ interface PromoteProps {
   user: User;
   balance: Balance;
   onCampaignCreated: () => void;
+  setActiveTab?: (tab: string) => void;
 }
 
-export default function Promote({ user, balance, onCampaignCreated }: PromoteProps) {
+export default function Promote({ user, balance, onCampaignCreated, setActiveTab }: PromoteProps) {
   const { showToast } = useToast();
   const [resources, setResources] = useState<Resource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,7 +193,30 @@ export default function Promote({ user, balance, onCampaignCreated }: PromotePro
   const maxActionsCalc = Math.floor(escrowBudgetCalc / rewardNum);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 animate-fade-in">
+      {/* Page Header */}
+      <div className="flex items-center justify-between border-b border-[#A9A3B8]/10 pb-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 bg-[#8A2BFF]/10 rounded-lg border border-[#8A2BFF]/35 text-[#B066FF]">
+            <Rocket className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="font-sans text-base font-extrabold text-white leading-none">Promote My Project</h1>
+            <span className="text-[10px] font-mono text-[#A9A3B8] tracking-wider uppercase mt-1 block">Ecosystem Campaigns</span>
+          </div>
+        </div>
+        
+        {setActiveTab && (
+          <button
+            onClick={() => setActiveTab('home')}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-[#A9A3B8]/10 bg-[#0B0618]/60 text-[11px] font-bold text-[#A9A3B8] hover:text-white hover:border-[#8A2BFF]/40 transition-all cursor-pointer"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            <span>Back</span>
+          </button>
+        )}
+      </div>
+
       {/* Disclaimer / Explainer */}
       <div className="rounded-xl border border-[#8A2BFF]/30 glass p-4 space-y-2 relative overflow-hidden">
         <div className="absolute top-0 right-0 h-24 w-24 rounded-full bg-[#8A2BFF]/5 blur-2xl"></div>

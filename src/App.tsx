@@ -433,6 +433,15 @@ function MainApp() {
               />
             )}
 
+            {activeTab === 'promote' && (
+              <Promote 
+                user={currentUser} 
+                balance={currentBalance} 
+                onCampaignCreated={reloadUserAndBalance} 
+                setActiveTab={setActiveTab}
+              />
+            )}
+
             {activeTab === 'earn' && (
               <Earn 
                 user={currentUser} 
