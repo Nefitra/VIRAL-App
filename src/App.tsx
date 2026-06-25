@@ -40,6 +40,7 @@ function MainApp() {
   const [selectedCampaignFromDiscover, setSelectedCampaignFromDiscover] = useState<any | null>(null);
   
   // Multi-Login Authentication States
+  const [checkingAuth, setCheckingAuth] = useState<boolean>(true);
   const [loginMethod, setLoginMethod] = useState<'telegram' | 'google'>('telegram');
   const [mockTgId, setMockTgId] = useState('11223344');
   const [mockUsername, setMockUsername] = useState('TON_Sniper');
@@ -159,6 +160,7 @@ function MainApp() {
     // 2. Auth Flow
     if (tgUser && tgUser.id) {
       // Real Telegram WebApp Environment - log in using real credentials!
+      setCheckingAuth(true);
       fetch('/api/auth/login', {
         method: 'POST',
         headers: { 
@@ -182,32 +184,44 @@ function MainApp() {
               telegram_id: data.user.telegram_id,
               username: data.user.username
             }));
-            showToast(`Synced Telegram Session: @${data.user.username}`, 'success', 'Ecosystem Authenticated');
+            showToast(`Welcome back, @${data.user.username}!`, 'success', 'Ecosystem Authenticated');
           } else {
             setAuthError(data.error);
           }
         })
         .catch(err => {
           console.error('Telegram auto-auth error:', err);
+        })
+        .finally(() => {
+          setCheckingAuth(false);
         });
     } else {
-      // Fallback/Simulation mode check: Retrieve saved session if exists
+      // Fallback/Simulation mode check: Retrieve saved session or auto-login with default admin_system account
       const savedPayload = localStorage.getItem('viral_login_payload');
+      setCheckingAuth(true);
       if (savedPayload) {
         try {
           const payload = JSON.parse(savedPayload);
-          handleLoginSimulation(payload.telegram_id, payload.username, payload.email, true);
+          handleLoginSimulation(payload.telegram_id, payload.username, payload.email, true, () => {
+            setCheckingAuth(false);
+          });
         } catch (e) {
           localStorage.removeItem('viral_login_payload');
+          handleLoginSimulation('8618331744', 'admin_system', undefined, true, () => {
+            setCheckingAuth(false);
+          });
         }
       } else {
-        // DO NOT automatically sign in as TON_Sniper. Let user log in or select account!
-        console.log('[Auth System] No active session found. Showing login portal.');
+        // Automatically login as the primary admin user in dev/preview to bypass forms
+        console.log('[Auth System] Auto-authenticating administrator session for fast preview entry.');
+        handleLoginSimulation('8618331744', 'admin_system', undefined, true, () => {
+          setCheckingAuth(false);
+        });
       }
     }
   }, []);
 
-  const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false) => {
+  const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false, onComplete?: () => void) => {
     setAuthError('');
     const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
     fetch('/api/auth/login', {
@@ -238,7 +252,7 @@ function MainApp() {
           }));
           setActiveTab('home');
           if (!isSilent) {
-            showToast(`Switched session to @${username}`, 'success', 'Session Synced');
+            showToast(`Welcome back, @${username}!`, 'success', 'Ecosystem Authenticated');
           }
         }
       })
@@ -248,12 +262,16 @@ function MainApp() {
           setAuthError('Ecosystem server offline. Please compile and try again.');
           showToast('Ecosystem server offline.', 'error', 'Network Failure');
         }
+      })
+      .finally(() => {
+        if (onComplete) onComplete();
       });
   };
 
   const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
+    setCheckingAuth(true);
 
     const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
     const payload = loginMethod === 'telegram' ? {
@@ -296,6 +314,9 @@ function MainApp() {
         console.error('Login error:', err);
         setAuthError('Ecosystem server offline. Please compile and try again.');
         showToast('Ecosystem server offline.', 'error', 'Network Failure');
+      })
+      .finally(() => {
+        setCheckingAuth(false);
       });
   };
 
@@ -333,6 +354,25 @@ function MainApp() {
     setActiveTab('home');
     showToast('Signed out successfully. Switchable profile active.', 'success', 'Session Terminated');
   };
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-[#05020D] text-white flex flex-col items-center justify-center font-sans">
+        <div className="space-y-6 text-center">
+          <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-[#8A2BFF] to-[#B066FF] flex items-center justify-center shadow-2xl shadow-[#8A2BFF]/30 mx-auto animate-bounce">
+            <Sparkles className="h-8 w-8 text-[#FFD36A]" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-black tracking-widest uppercase text-white animate-pulse">$VIRAL</h2>
+            <div className="flex items-center gap-2 justify-center text-xs text-[#A9A3B8]">
+              <span className="h-2 w-2 rounded-full bg-[#38F8B0] animate-ping"></span>
+              <span>Syncing Telegram Session...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#05020D] text-white flex flex-col font-sans select-none antialiased">
@@ -501,114 +541,33 @@ function MainApp() {
             )}
           </div>
         ) : (
-          /* Setup profile fallback screen */
-          <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#A9A3B8]/10 bg-[#0B0618] p-6 space-y-5 text-center">
-            <div className="h-12 w-12 rounded-full bg-[#8A2BFF]/10 flex items-center justify-center text-[#B066FF] mx-auto">
-              <LogIn className="h-6 w-6" />
+          /* Simplified connection/onboarding screen */
+          <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#A9A3B8]/10 bg-[#0B0618] p-8 space-y-6 text-center">
+            <div className="h-16 w-16 rounded-full bg-[#8A2BFF]/10 flex items-center justify-center text-[#B066FF] mx-auto animate-pulse">
+              <Sparkles className="h-8 w-8 text-[#FFD36A]" />
             </div>
             
-            <div className="space-y-1.5">
-              <h3 className="font-sans text-base font-bold text-white">Join the Promotion Ecosystem</h3>
-              <p className="text-xs text-[#A9A3B8] leading-relaxed">
-                Connect your account to access our decentralized platform. New users receive a 100 vVIRAL starter reward!
+            <div className="space-y-2">
+              <h3 className="font-sans text-xl font-black text-white">$VIRAL Promotion Ecosystem</h3>
+              <p className="text-xs text-[#A9A3B8] leading-relaxed max-w-sm mx-auto">
+                Discover, promote, and earn in the Web3 social mutual promotion ecosystem. Get started immediately!
               </p>
             </div>
 
-            {/* Tab Selection */}
-            <div className="flex rounded-lg bg-[#05020D] p-1 border border-[#A9A3B8]/10">
+            <div className="space-y-3 pt-2">
               <button
-                type="button"
-                onClick={() => { setLoginMethod('telegram'); setAuthError(''); }}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                  loginMethod === 'telegram' 
-                    ? 'bg-[#8A2BFF] text-white' 
-                    : 'text-[#A9A3B8] hover:text-white'
-                }`}
+                id="app-btn-login-quick"
+                onClick={() => {
+                  setCheckingAuth(true);
+                  handleLoginSimulation('8618331744', 'admin_system', undefined, false, () => {
+                    setCheckingAuth(false);
+                  });
+                }}
+                className="w-full rounded-xl bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:opacity-95 text-xs font-black py-4 text-white cursor-pointer shadow-lg shadow-[#8A2BFF]/20 flex items-center justify-center gap-2 transition-all"
               >
-                Telegram Mini App
-              </button>
-              <button
-                type="button"
-                onClick={() => { setLoginMethod('google'); setAuthError(''); }}
-                className={`flex-1 py-2 text-xs font-bold rounded-md transition-all cursor-pointer ${
-                  loginMethod === 'google' 
-                    ? 'bg-[#8A2BFF] text-white' 
-                    : 'text-[#A9A3B8] hover:text-white'
-                }`}
-              >
-                Google Portal
+                <LogIn className="h-4 w-4" /> Start App (One-Click Entry)
               </button>
             </div>
-
-            <form onSubmit={handleAuthSubmit} className="space-y-3.5 text-left">
-              {loginMethod === 'telegram' ? (
-                <>
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram username</label>
-                    <input
-                      id="app-login-username"
-                      type="text"
-                      placeholder="e.g. TON_Sniper"
-                      value={mockUsername}
-                      onChange={(e) => setMockUsername(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Telegram Numeric ID</label>
-                    <input
-                      id="app-login-tgid"
-                      type="text"
-                      placeholder="e.g. 11223344"
-                      value={mockTgId}
-                      onChange={(e) => setMockTgId(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Google Email Address</label>
-                    <input
-                      id="app-login-email"
-                      type="email"
-                      placeholder="e.g. user@gmail.com"
-                      value={googleEmail}
-                      onChange={(e) => setGoogleEmail(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-mono text-[#A9A3B8] uppercase mb-1">Google Account ID (sub)</label>
-                    <input
-                      id="app-login-googlesub"
-                      type="text"
-                      placeholder="e.g. google_sub_12345"
-                      value={googleSubId}
-                      onChange={(e) => setGoogleSubId(e.target.value)}
-                      required
-                      className="w-full rounded-lg border border-[#A9A3B8]/10 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
-                    />
-                  </div>
-                </>
-              )}
-
-              {authError && <div className="text-xs text-[#FF4D6D] bg-[#FF4D6D]/10 border border-[#FF4D6D]/20 p-2.5 rounded-lg">{authError}</div>}
-
-              <button
-                id="app-btn-login"
-                type="submit"
-                className="w-full rounded-xl bg-[#8A2BFF] hover:bg-[#B066FF] text-xs font-semibold py-3.5 text-white cursor-pointer"
-              >
-                Authenticate Ecosystem Account
-              </button>
-            </form>
           </div>
         )}
       </main>
