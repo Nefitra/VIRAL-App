@@ -146,7 +146,7 @@ function MainApp() {
     }
     if (!refId) {
       const urlParams = new URLSearchParams(window.location.search);
-      const start = urlParams.get('start') || urlParams.get('ref') || urlParams.get('tgWebAppStartParam');
+      const start = urlParams.get('start') || urlParams.get('ref') || urlParams.get('tgWebAppStartParam') || urlParams.get('startapp') || urlParams.get('tgWebAppStartapp');
       if (start) {
         refId = start.startsWith('ref_') ? start.substring(4) : start;
       }

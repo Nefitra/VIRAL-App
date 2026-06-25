@@ -50,9 +50,9 @@ export default function Referrals({ user }: ReferralsProps) {
       </div>
 
       {/* Stats Counter */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/60 glass p-3">
-          <div className="stat-label">Total Network Size</div>
+          <div className="stat-label">Total Invited</div>
           <div className="mt-1 flex items-baseline gap-1 text-base font-extrabold text-white">
             <span className="font-mono text-white">
               {(stats?.count || 0) + (stats?.countL2 || 0)}
@@ -65,21 +65,39 @@ export default function Referrals({ user }: ReferralsProps) {
         </div>
 
         <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/60 glass p-3">
-          <div className="stat-label">Total Referrer Rewards</div>
+          <div className="stat-label">Active Advocates</div>
+          <div className="mt-1 flex items-baseline gap-1 text-base font-extrabold text-[#B066FF]">
+            <span className="font-mono">
+              {stats?.activeCount || 0}
+            </span>
+            <span className="text-[9px] text-[#A9A3B8] font-normal">active</span>
+          </div>
+          <div className="text-[8px] font-mono text-[#A9A3B8] mt-0.5">
+            Verified status active
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/60 glass p-3">
+          <div className="stat-label">Connected Wallets</div>
+          <div className="mt-1 flex items-baseline gap-1 text-base font-extrabold text-[#FFD36A]">
+            <span className="font-mono">
+              {stats?.walletConnectedCount || 0}
+            </span>
+            <span className="text-[9px] text-[#A9A3B8] font-normal">wallets</span>
+          </div>
+          <div className="text-[8px] font-mono text-[#A9A3B8] mt-0.5">
+            TON network active
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/60 glass p-3">
+          <div className="stat-label">Network Rewards</div>
           <div className="mt-1 flex items-baseline gap-1 text-base font-extrabold text-[#38F8B0]">
             <span className="font-mono">+{stats?.totalReferralRewards?.toLocaleString() || 0}</span>
             <span className="text-[9px] text-[#A9A3B8] font-normal">vVIRAL</span>
           </div>
           <div className="text-[8px] font-mono text-[#38F8B0] mt-0.5">
             +{stats?.totalReferralRewardsL1 || 0} L1 • +{stats?.totalReferralRewardsL2 || 0} L2
-          </div>
-        </div>
-
-        <div className="col-span-2 rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/60 glass p-3 sm:col-span-1">
-          <div className="stat-label">Network Rates</div>
-          <div className="mt-1 flex flex-col gap-0.5 text-xs font-mono font-bold text-[#B066FF] uppercase">
-            <div>L1: 10% Direct</div>
-            <div>L2: 5% Indirect</div>
           </div>
         </div>
       </div>

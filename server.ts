@@ -1719,6 +1719,8 @@ app.get('/api/referrals/:userId', (req, res) => {
       ...ref,
       invited_username: invitedUser ? invitedUser.username : 'Unknown User',
       invited_quality: invitedUser ? invitedUser.quality_score : 'New User',
+      wallet_address: invitedUser ? invitedUser.wallet_address : undefined,
+      status: invitedUser ? invitedUser.status : 'active'
     };
   });
 
@@ -1732,9 +1734,18 @@ app.get('/api/referrals/:userId', (req, res) => {
       ...ref,
       invited_username: invitedUser ? invitedUser.username : 'Unknown User',
       invited_quality: invitedUser ? invitedUser.quality_score : 'New User',
-      referred_via: viaUser ? viaUser.username : 'L1 Network'
+      referred_via: viaUser ? viaUser.username : 'L1 Network',
+      wallet_address: invitedUser ? invitedUser.wallet_address : undefined,
+      status: invitedUser ? invitedUser.status : 'active'
     };
   });
+
+  // Compute active and connected wallet counts across L1 & L2
+  const activeCount = invitedUsersL1.filter(u => u.status === 'active').length + 
+                      invitedUsersL2.filter(u => u.status === 'active').length;
+
+  const walletConnectedCount = invitedUsersL1.filter(u => u.wallet_address).length + 
+                               invitedUsersL2.filter(u => u.wallet_address).length;
 
   // Calculate earnings securely from Ledger Transactions to prevent discrepancies
   const totalReferralRewardsL1 = db.ledger_transactions
@@ -1754,7 +1765,9 @@ app.get('/api/referrals/:userId', (req, res) => {
     totalReferralRewardsL1,
     totalReferralRewardsL2,
     count: invitedUsersL1.length,
-    countL2: invitedUsersL2.length
+    countL2: invitedUsersL2.length,
+    activeCount,
+    walletConnectedCount
   });
 });
 
