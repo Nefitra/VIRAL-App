@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { 
   Rocket, Compass, PlusCircle, Coins, Users, 
   Settings, Award, Sparkles, LogIn, UserCircle, 
-  MessageSquare, ShieldCheck, Database, Info, Wallet as WalletIcon
+  MessageSquare, ShieldCheck, Database, Info, Wallet as WalletIcon,
+  ShieldAlert
 } from 'lucide-react';
 
 import { User, Balance } from './types';
@@ -41,11 +42,7 @@ function MainApp() {
   
   // Multi-Login Authentication States
   const [checkingAuth, setCheckingAuth] = useState<boolean>(true);
-  const [loginMethod, setLoginMethod] = useState<'telegram' | 'google'>('telegram');
-  const [mockTgId, setMockTgId] = useState('11223344');
-  const [mockUsername, setMockUsername] = useState('TON_Sniper');
-  const [googleEmail, setGoogleEmail] = useState('crypto_grinder@example.com');
-  const [googleSubId, setGoogleSubId] = useState('google_sub_12345');
+  const [outsideTelegram, setOutsideTelegram] = useState<boolean>(false);
   const [authError, setAuthError] = useState('');
 
   // Sync tab with URL path for direct route support
@@ -161,6 +158,7 @@ function MainApp() {
     if (tgUser && tgUser.id) {
       // Real Telegram WebApp Environment - log in using real credentials!
       setCheckingAuth(true);
+      setOutsideTelegram(false);
       fetch('/api/auth/login', {
         method: 'POST',
         headers: { 
@@ -191,144 +189,33 @@ function MainApp() {
         })
         .catch(err => {
           console.error('Telegram auto-auth error:', err);
+          setAuthError('Ecosystem server offline. Please compile and try again.');
         })
         .finally(() => {
           setCheckingAuth(false);
         });
     } else {
-      // Fallback/Simulation mode check: Retrieve saved session or auto-login with default admin_system account
-      const savedPayload = localStorage.getItem('viral_login_payload');
-      setCheckingAuth(true);
-      if (savedPayload) {
-        try {
-          const payload = JSON.parse(savedPayload);
-          handleLoginSimulation(payload.telegram_id, payload.username, payload.email, true, () => {
-            setCheckingAuth(false);
-          });
-        } catch (e) {
-          localStorage.removeItem('viral_login_payload');
-          handleLoginSimulation('8618331744', 'admin_system', undefined, true, () => {
-            setCheckingAuth(false);
-          });
-        }
-      } else {
-        // Automatically login as the primary admin user in dev/preview to bypass forms
-        console.log('[Auth System] Auto-authenticating administrator session for fast preview entry.');
-        handleLoginSimulation('8618331744', 'admin_system', undefined, true, () => {
-          setCheckingAuth(false);
-        });
-      }
+      // Outside Telegram - block app and show warning message
+      setOutsideTelegram(true);
+      setCheckingAuth(false);
     }
   }, []);
 
-  const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false, onComplete?: () => void) => {
-    setAuthError('');
-    const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        telegram_id: tgId,
-        username,
-        email,
-        referrer_id: referrerId
-      })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          if (!isSilent) {
-            setAuthError(data.error);
-            showToast(data.error, 'error', 'Error');
-          }
-        } else {
-          setCurrentUser(data.user);
-          setCurrentBalance(data.balance);
-          localStorage.setItem('viral_login_payload', JSON.stringify({
-            provider: email ? 'google' : 'telegram',
-            telegram_id: tgId,
-            username,
-            email
-          }));
-          setActiveTab('home');
-          if (!isSilent) {
-            showToast(`Welcome back, @${username}!`, 'success', 'Ecosystem Authenticated');
-          }
-        }
-      })
-      .catch(err => {
-        console.error('Login error:', err);
-        if (!isSilent) {
-          setAuthError('Ecosystem server offline. Please compile and try again.');
-          showToast('Ecosystem server offline.', 'error', 'Network Failure');
-        }
-      })
-      .finally(() => {
-        if (onComplete) onComplete();
-      });
-  };
-
-  const handleAuthSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setAuthError('');
-    setCheckingAuth(true);
-
-    const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
-    const payload = loginMethod === 'telegram' ? {
-      provider: 'telegram',
-      telegram_id: mockTgId,
-      username: mockUsername,
-      referrer_id: referrerId
-    } : {
-      provider: 'google',
-      google_id: googleSubId,
-      email: googleEmail,
-      username: googleEmail.split('@')[0],
-      referrer_id: referrerId
-    };
-
-    fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (data.error) {
-          setAuthError(data.error);
-          showToast(data.error, 'error', 'Authentication Error');
-        } else {
-          setCurrentUser(data.user);
-          setCurrentBalance(data.balance);
-          localStorage.setItem('viral_login_payload', JSON.stringify({
-            provider: loginMethod,
-            telegram_id: loginMethod === 'telegram' ? mockTgId : googleSubId,
-            username: loginMethod === 'telegram' ? mockUsername : googleEmail.split('@')[0],
-            email: loginMethod === 'google' ? googleEmail : undefined
-          }));
-          setActiveTab('home');
-          showToast(`Logged in successfully as @${data.user.username}`, 'success', 'Ecosystem Authenticated');
-        }
-      })
-      .catch(err => {
-        console.error('Login error:', err);
-        setAuthError('Ecosystem server offline. Please compile and try again.');
-        showToast('Ecosystem server offline.', 'error', 'Network Failure');
-      })
-      .finally(() => {
-        setCheckingAuth(false);
-      });
-  };
-
   const reloadUserAndBalance = () => {
     if (!currentUser) return;
+    const tgWebApp = (window as any).Telegram?.WebApp;
+    const initData = tgWebApp?.initData;
     fetch(`/api/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'x-telegram-init-data': initData || ''
+      },
       body: JSON.stringify({
         telegram_id: currentUser.telegram_id,
         username: currentUser.username,
-        email: currentUser.email
+        email: currentUser.email,
+        initData: initData || ''
       })
     })
       .then(res => res.json())
@@ -347,13 +234,28 @@ function MainApp() {
     showToast(`Selected campaign: ${campaign.title}. Headed to Earn tab!`, 'info', 'Campaign Selected');
   };
 
-  const handleSignOut = () => {
-    localStorage.removeItem('viral_login_payload');
-    setCurrentUser(null);
-    setCurrentBalance(null);
-    setActiveTab('home');
-    showToast('Signed out successfully. Switchable profile active.', 'success', 'Session Terminated');
-  };
+  if (outsideTelegram) {
+    return (
+      <div className="min-h-screen bg-[#05020D] text-white flex flex-col items-center justify-center font-sans p-6 text-center">
+        <div className="max-w-md w-full space-y-6">
+          <div className="h-16 w-16 rounded-2xl bg-gradient-to-tr from-[#FF4D6D] to-[#FFD36A] flex items-center justify-center shadow-2xl shadow-[#FF4D6D]/30 mx-auto animate-pulse">
+            <ShieldAlert className="h-8 w-8 text-white" />
+          </div>
+          <div className="space-y-2">
+            <h2 className="text-xl font-black tracking-widest uppercase text-white">Telegram Entry Required</h2>
+            <p className="text-sm text-[#A9A3B8] leading-relaxed">
+              Please open this App inside Telegram.
+            </p>
+          </div>
+          <div className="p-4 bg-[#0B0618] border border-[#A9A3B8]/10 rounded-xl text-xs text-[#A9A3B8] space-y-2 font-mono text-left">
+            <div>• Real WebApp environment is required.</div>
+            <div>• No fake profiles or automated admin bypass allowed.</div>
+            <div className="text-center font-bold text-white pt-2">© Project by BRICS LTD.</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (checkingAuth) {
     return (
@@ -515,7 +417,6 @@ function MainApp() {
                 onProfileUpdated={reloadUserAndBalance} 
                 onOpenAdminCheck={() => setActiveTab('admin-check')}
                 onOpenAdminSection={() => setActiveTab('admin')}
-                onSignOut={handleSignOut}
               />
             )}
 
@@ -541,32 +442,20 @@ function MainApp() {
             )}
           </div>
         ) : (
-          /* Simplified connection/onboarding screen */
-          <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#A9A3B8]/10 bg-[#0B0618] p-8 space-y-6 text-center">
-            <div className="h-16 w-16 rounded-full bg-[#8A2BFF]/10 flex items-center justify-center text-[#B066FF] mx-auto animate-pulse">
-              <Sparkles className="h-8 w-8 text-[#FFD36A]" />
+          /* Auth failed / error screen */
+          <div className="max-w-md mx-auto my-12 rounded-2xl border border-[#FF4D6D]/10 bg-[#0B0618] p-8 space-y-6 text-center">
+            <div className="h-16 w-16 rounded-full bg-[#FF4D6D]/10 flex items-center justify-center text-[#FF4D6D] mx-auto animate-pulse">
+              <ShieldCheck className="h-8 w-8" />
             </div>
             
             <div className="space-y-2">
-              <h3 className="font-sans text-xl font-black text-white">$VIRAL Promotion Ecosystem</h3>
-              <p className="text-xs text-[#A9A3B8] leading-relaxed max-w-sm mx-auto">
-                Discover, promote, and earn in the Web3 social mutual promotion ecosystem. Get started immediately!
+              <h3 className="font-sans text-xl font-black text-white">Authentication Failed</h3>
+              <p className="text-xs text-[#FF4D6D] leading-relaxed max-w-sm mx-auto">
+                {authError || 'Unable to secure an authorized session with the ecosystem server.'}
               </p>
-            </div>
-
-            <div className="space-y-3 pt-2">
-              <button
-                id="app-btn-login-quick"
-                onClick={() => {
-                  setCheckingAuth(true);
-                  handleLoginSimulation('8618331744', 'admin_system', undefined, false, () => {
-                    setCheckingAuth(false);
-                  });
-                }}
-                className="w-full rounded-xl bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:opacity-95 text-xs font-black py-4 text-white cursor-pointer shadow-lg shadow-[#8A2BFF]/20 flex items-center justify-center gap-2 transition-all"
-              >
-                <LogIn className="h-4 w-4" /> Start App (One-Click Entry)
-              </button>
+              <p className="text-xs text-[#A9A3B8] mt-4">
+                Please ensure you have launched this Mini App from within official Telegram channels.
+              </p>
             </div>
           </div>
         )}

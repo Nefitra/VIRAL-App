@@ -132,9 +132,8 @@ const sendTelegramAdminNotification = async (text: string) => {
 // Admin verification middleware
 const adminAuthMiddleware = async (req: any, res: any, next: any) => {
   const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
-  const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
 
-  // 1. Try to extract telegram_id from initData first!
+  // 1. Try to extract telegram_id strictly from validated initData
   let detectedTgId: string | null = null;
   let isInitDataValid = false;
   let parsedUser: any = null;
@@ -142,29 +141,24 @@ const adminAuthMiddleware = async (req: any, res: any, next: any) => {
   if (initDataHeader) {
     const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
     isInitDataValid = checkResult.isValid;
-    if (checkResult.user && checkResult.user.id) {
+    if (isInitDataValid && checkResult.user && checkResult.user.id) {
       detectedTgId = checkResult.user.id.toString();
       parsedUser = checkResult.user;
     }
   }
 
-  // Fallback to explicit header if no valid user ID could be decoded from initData
-  if (!detectedTgId && adminIdHeader) {
-    detectedTgId = adminIdHeader.toString().trim();
-  }
-
   // Add detailed server logs for admin detection
   console.log(`[Admin Access Log] Attempt:
     - raw initData received: ${initDataHeader ? 'yes' : 'no'}
+    - is initData valid: ${isInitDataValid ? 'yes' : 'no'}
     - parsed telegram_id: ${detectedTgId || 'none'}
     - parsed username: ${parsedUser?.username || 'none'}
     - ADMIN_TELEGRAM_IDS loaded: ${ADMIN_TELEGRAM_IDS.join(',')}
     - admin check result: ${detectedTgId && ADMIN_TELEGRAM_IDS.includes(detectedTgId) ? 'MATCH' : 'MISMATCH'}
-    - final role returned to frontend: ${detectedTgId && ADMIN_TELEGRAM_IDS.includes(detectedTgId) ? 'admin' : 'user'}
   `);
 
   if (!detectedTgId) {
-    return res.status(403).json({ error: 'Access Denied: Missing Telegram ID or Admin credentials' });
+    return res.status(403).json({ error: 'Access Denied: Missing or invalid Telegram WebApp security authorization initData' });
   }
 
   // 2. Check if numeric format
@@ -272,32 +266,23 @@ app.post('/api/admin/config', adminAuthMiddleware, async (req, res) => {
 // Unified Multi-Login Auth System
 app.post('/api/auth/login', async (req, res) => {
   const db = readDb();
-  const { provider, telegram_id, username, email, google_id, provider_name, provider_user_id, provider_username, referrer_id, initData } = req.body;
+  const { referrer_id, initData } = req.body;
 
   const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || initData;
 
-  let decodedTgId = telegram_id ? telegram_id.toString() : undefined;
-  let decodedUsername = username;
-  let isInitDataValid = false;
-
-  if (initDataHeader) {
-    const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
-    isInitDataValid = checkResult.isValid;
-    if (checkResult.user && checkResult.user.id) {
-      decodedTgId = checkResult.user.id.toString();
-      if (checkResult.user.username) {
-        decodedUsername = checkResult.user.username;
-      }
-    }
+  if (!initDataHeader) {
+    return res.status(400).json({ error: 'Missing Telegram WebApp initialization data (initData). Please open inside Telegram.' });
   }
 
-  // Defaults to telegram login for backwards compatibility if provider is not explicitly set
-  const currentProvider = provider || 'telegram';
-  const provName = currentProvider === 'telegram' ? 'telegram' : (currentProvider === 'google' ? 'google' : (provider_name || 'telegram'));
-  
-  // Use decoded TG ID if available and provider is telegram
-  const finalTgId = (provName === 'telegram' && decodedTgId) ? decodedTgId : (telegram_id ? telegram_id.toString() : undefined);
-  const provUserId = finalTgId || google_id || provider_user_id || 'unknown';
+  const checkResult = getTelegramUserFromInitData(initDataHeader.toString());
+  if (!checkResult.isValid || !checkResult.user || !checkResult.user.id) {
+    return res.status(401).json({ error: checkResult.error || 'Invalid or forged Telegram WebApp cryptographic signature.' });
+  }
+
+  const finalTgId = checkResult.user.id.toString();
+  const decodedUsername = checkResult.user.username || `tg_${finalTgId}`;
+  const provName = 'telegram';
+  const provUserId = finalTgId;
 
   let existingUser: User | undefined;
 
@@ -313,13 +298,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   // 2. Secondary fallback check: Search by direct user table properties to prevent duplication (automatic mapping/linkage)
   if (!existingUser) {
-    if (provName === 'telegram' && finalTgId) {
-      existingUser = db.users.find(u => u.telegram_id === finalTgId);
-    } else if (provName === 'google') {
-      existingUser = db.users.find(u => u.google_id === google_id || (u.email && u.email.toLowerCase() === email?.toLowerCase()));
-    } else if (email) {
-      existingUser = db.users.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
-    }
+    existingUser = db.users.find(u => u.telegram_id === finalTgId);
   }
 
   if (existingUser) {
@@ -331,23 +310,15 @@ app.post('/api/auth/login', async (req, res) => {
     existingUser.last_active_at = new Date().toISOString();
     existingUser.last_login_at = new Date().toISOString();
 
-    // Link credentials if they are newly provided on login
-    if (provName === 'google' && google_id && !existingUser.google_id) {
-      existingUser.google_id = google_id;
-    }
-    if (email && !existingUser.email) {
-      existingUser.email = email;
-    }
-    if (provName === 'telegram' && finalTgId && !existingUser.telegram_id) {
+    if (!existingUser.telegram_id) {
       existingUser.telegram_id = finalTgId;
     }
 
     // Stabilize and update user's username if Telegram provides a real username for the same ID
-    if (provName === 'telegram' && (decodedUsername || username)) {
-      const newUsername = decodedUsername || username;
-      if (existingUser.username !== newUsername) {
-        console.log(`[Username Sync] Updating stable username for TG ID ${existingUser.telegram_id || finalTgId} from "${existingUser.username}" to "${newUsername}"`);
-        existingUser.username = newUsername;
+    if (decodedUsername) {
+      if (existingUser.username !== decodedUsername) {
+        console.log(`[Username Sync] Updating stable username for TG ID ${existingUser.telegram_id || finalTgId} from "${existingUser.username}" to "${decodedUsername}"`);
+        existingUser.username = decodedUsername;
       }
     }
 
@@ -359,17 +330,15 @@ app.post('/api/auth/login', async (req, res) => {
         user_id: existingUser.id,
         provider_name: provName as any,
         provider_user_id: provUserId,
-        provider_email: email,
-        provider_username: decodedUsername || username || provider_username,
+        provider_username: decodedUsername,
         connected_at: new Date().toISOString(),
         last_used_at: new Date().toISOString(),
         status: 'active'
       });
     } else {
       existingProv.last_used_at = new Date().toISOString();
-      if (email && !existingProv.provider_email) existingProv.provider_email = email;
-      if ((decodedUsername || username) && !existingProv.provider_username) {
-        existingProv.provider_username = decodedUsername || username;
+      if (decodedUsername && !existingProv.provider_username) {
+        existingProv.provider_username = decodedUsername;
       }
     }
 
@@ -417,15 +386,13 @@ app.post('/api/auth/login', async (req, res) => {
   const newUser: User = {
     id: newUserId,
     telegram_id: cleanTgId,
-    email: email || '',
-    username: decodedUsername || username || (currentProvider === 'google' ? (email ? email.split('@')[0] : 'GoogleUser') : 'Web3User'),
+    email: '',
+    username: decodedUsername,
     role: isSpecialAdmin ? 'admin' : 'user',
     is_admin: isSpecialAdmin,
     status: 'active',
     quality_score: isSpecialAdmin ? 'Partner' : 'New User',
     viral_power: isSpecialAdmin ? 1000 : 10,
-    google_id: google_id || undefined,
-    social_provider: currentProvider !== 'telegram' && currentProvider !== 'google' ? currentProvider : undefined,
     referral_code: `VIRAL_${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
     created_at: new Date().toISOString(),
     last_active_at: new Date().toISOString(),
@@ -452,8 +419,7 @@ app.post('/api/auth/login', async (req, res) => {
     user_id: newUserId,
     provider_name: provName as any,
     provider_user_id: provUserId,
-    provider_email: email,
-    provider_username: decodedUsername || username || provider_username,
+    provider_username: decodedUsername,
     connected_at: new Date().toISOString(),
     last_used_at: new Date().toISOString(),
     status: 'active'
@@ -469,7 +435,7 @@ app.post('/api/auth/login', async (req, res) => {
     status: 'completed',
     direction: 'credit',
     created_at: new Date().toISOString(),
-    metadata: `Starter Welcome Onboarding Bonus Verified via ${currentProvider}`
+    metadata: `Starter Welcome Onboarding Bonus Verified via telegram`
   });
 
   // Handle invitation referrals (Section 14 with anti-abuse audits)
