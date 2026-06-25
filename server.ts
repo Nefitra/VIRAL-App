@@ -6,7 +6,7 @@ import path from 'path';
 import crypto from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { readDb, writeDb, DatabaseSchema } from './src/server/db';
-import { initializeDbFromFirestore } from './src/server/firestoreSync';
+import { initializeDbFromFirestore, isDbHealthy } from './src/server/firestoreSync';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, Claim, FraudFlag, AppConfig 
@@ -16,6 +16,20 @@ const app = express();
 const PORT = 3000;
 
 app.use(express.json());
+
+// Database health check and maintenance mode middleware
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/') && req.path !== '/api/health') {
+    if (!isDbHealthy()) {
+      console.warn(`[Maintenance Mode] Blocking API request to ${req.path} because Cloud Firestore is unavailable.`);
+      return res.status(503).json({
+        error: 'Database Unavailable',
+        message: 'The persistent database service is temporarily unavailable or in maintenance mode. Real-time actions are blocked to prevent data loss. Please try again later.'
+      });
+    }
+  }
+  next();
+});
 
 // API Routes
 
@@ -80,7 +94,7 @@ const getTelegramUserFromInitData = (initDataStr: string | undefined) => {
 };
 
 // Admin verification middleware
-const adminAuthMiddleware = (req: any, res: any, next: any) => {
+const adminAuthMiddleware = async (req: any, res: any, next: any) => {
   const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
   const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
 
@@ -163,12 +177,12 @@ const adminAuthMiddleware = (req: any, res: any, next: any) => {
       gram_balance_cache: 0,
       updated_at: new Date().toISOString()
     });
-    writeDb(db);
+    await writeDb(db);
   } else {
     if (matchedUser.role !== 'admin' || !matchedUser.is_admin) {
       matchedUser.role = 'admin';
       matchedUser.is_admin = true;
-      writeDb(db);
+      await writeDb(db);
     }
   }
 
@@ -202,7 +216,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // 2. Update Platform Configuration (Admin only)
-app.post('/api/admin/config', adminAuthMiddleware, (req, res) => {
+app.post('/api/admin/config', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { starterBonus, platformFeePercent, dailyRewardLimit, weeklyRewardLimit, monthlyRewardLimit } = req.body;
   
@@ -215,12 +229,12 @@ app.post('/api/admin/config', adminAuthMiddleware, (req, res) => {
     monthlyRewardLimit: Number(monthlyRewardLimit) || db.config.monthlyRewardLimit,
   };
   
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, config: db.config });
 });
 
 // Unified Multi-Login Auth System
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const db = readDb();
   const { provider, telegram_id, username, email, google_id, provider_name, provider_user_id, provider_username, referrer_id, initData } = req.body;
 
@@ -343,7 +357,7 @@ app.post('/api/auth/login', (req, res) => {
       console.log(`[Referral Click Log] Existing user ${existingUser.username} accessed app via startapp=${referrer_id}. Ignored referrer re-assignment.`);
     }
 
-    writeDb(db);
+    await writeDb(db);
     const balance = db.balances.find(b => b.user_id === existingUser!.id);
     return res.json({ user: existingUser, balance });
   }
@@ -469,12 +483,12 @@ app.post('/api/auth/login', (req, res) => {
     });
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ user: newUser, balance: newBalance });
 });
 
 // Link Multi-Login Providers (Prevent Duplicate Accounts)
-app.post('/api/auth/link', (req, res) => {
+app.post('/api/auth/link', async (req, res) => {
   const db = readDb();
   const { userId, provider, provider_user_id, provider_email, provider_username } = req.body;
 
@@ -577,7 +591,7 @@ app.post('/api/auth/link', (req, res) => {
     }
   }
 
-  writeDb(db);
+  await writeDb(db);
   const balance = db.balances.find(b => b.user_id === userId);
   res.json({ success: true, user, balance });
 });
@@ -593,7 +607,7 @@ app.get('/api/auth/providers/:userId', (req, res) => {
 });
 
 // Secure TON Wallet Verification and Connection
-app.post('/api/wallet/verify-connect', (req, res) => {
+app.post('/api/wallet/verify-connect', async (req, res) => {
   const db = readDb();
   const { userId, walletAddress, walletProofSignature } = req.body;
 
@@ -661,12 +675,12 @@ app.post('/api/wallet/verify-connect', (req, res) => {
     }
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, user, balance });
 });
 
 // Secure TON Wallet Disconnection
-app.post('/api/wallet/disconnect', (req, res) => {
+app.post('/api/wallet/disconnect', async (req, res) => {
   const db = readDb();
   const { userId } = req.body;
 
@@ -696,7 +710,7 @@ app.post('/api/wallet/disconnect', (req, res) => {
     metadata: `Disconnected TON Wallet: ${prevWallet ? (prevWallet.substring(0, 6) + '...') : ''}`
   });
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, user });
 });
 
@@ -772,7 +786,7 @@ app.get('/api/wallet/balance/:address', async (req, res) => {
 });
 
 // Secure vVIRAL Transfer Before Bonding (P2P Send)
-app.post('/api/wallet/send', (req, res) => {
+app.post('/api/wallet/send', async (req, res) => {
   const db = readDb();
   const { senderId, recipientUsername, amount } = req.body;
 
@@ -845,12 +859,12 @@ app.post('/api/wallet/send', (req, res) => {
     metadata: `Received vVIRAL from @${senderUser.username}`
   });
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, balance: senderBalance });
 });
 
 // 4. Update Profile Info / Onboarding Extras (Wallet / Email verification)
-app.post('/api/auth/update-profile', (req, res) => {
+app.post('/api/auth/update-profile', async (req, res) => {
   const db = readDb();
   const { userId, email, wallet_address } = req.body;
 
@@ -940,7 +954,7 @@ app.post('/api/auth/update-profile', (req, res) => {
   user.last_active_at = new Date().toISOString();
   balance.updated_at = new Date().toISOString();
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, user, balance, rewardEarned, updates });
 });
 
@@ -1017,7 +1031,7 @@ app.get('/api/checkin/status/:userId', (req, res) => {
 });
 
 // 4.4 Perform Daily Check-in (Secure backend-driven logic)
-app.post('/api/checkin', (req, res) => {
+app.post('/api/checkin', async (req, res) => {
   const db = readDb();
   const { userId } = req.body;
   
@@ -1087,7 +1101,7 @@ app.post('/api/checkin', (req, res) => {
     user.quality_score = 'Verified User';
   }
   
-  writeDb(db);
+  await writeDb(db);
   
   res.json({
     success: true,
@@ -1099,7 +1113,7 @@ app.post('/api/checkin', (req, res) => {
 });
 
 // 5. SEND vVIRAL Internally (Internal Transfer between users)
-app.post('/api/balances/send', (req, res) => {
+app.post('/api/balances/send', async (req, res) => {
   const db = readDb();
   const { senderId, recipientQuery, amount } = req.body;
 
@@ -1210,7 +1224,7 @@ app.post('/api/balances/send', (req, res) => {
     });
   }
 
-  writeDb(db);
+  await writeDb(db);
 
   res.json({ 
     success: true, 
@@ -1239,7 +1253,7 @@ app.get('/api/resources', (req, res) => {
 });
 
 // 7. Add Resource to promote
-app.post('/api/resources/add', (req, res) => {
+app.post('/api/resources/add', async (req, res) => {
   const db = readDb();
   const { owner_user_id, type, title, url, description, image_url, category, language } = req.body;
 
@@ -1290,12 +1304,12 @@ app.post('/api/resources/add', (req, res) => {
     }
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, resource: newResource, rewardEarned });
 });
 
 // 8. Approve/Reject Resource (Admin only)
-app.post('/api/resources/:id/approve', adminAuthMiddleware, (req, res) => {
+app.post('/api/resources/:id/approve', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { status } = req.body; // 'approved' | 'rejected'
@@ -1310,7 +1324,7 @@ app.post('/api/resources/:id/approve', adminAuthMiddleware, (req, res) => {
   }
 
   db.resources[resIndex].status = status;
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, resource: db.resources[resIndex] });
 });
 
@@ -1343,7 +1357,7 @@ app.get('/api/campaigns', (req, res) => {
 });
 
 // 10. Create Campaign (Ecosystem Economic Loop)
-app.post('/api/campaigns', (req, res) => {
+app.post('/api/campaigns', async (req, res) => {
   const db = readDb();
   const { 
     owner_user_id, resource_id, campaign_type, total_budget, reward_per_action, 
@@ -1474,12 +1488,12 @@ app.post('/api/campaigns', (req, res) => {
   advertiserUser.viral_power += 50;
   advertiserBalance.viral_power += 50;
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, campaign: newCampaign, platformFee, escrowBudget, maxActions });
 });
 
 // 11. Admin Action: Approve/Reject campaign
-app.post('/api/campaigns/:id/approve', adminAuthMiddleware, (req, res) => {
+app.post('/api/campaigns/:id/approve', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { status } = req.body; // 'active' | 'rejected'
@@ -1490,12 +1504,12 @@ app.post('/api/campaigns/:id/approve', adminAuthMiddleware, (req, res) => {
   }
 
   campaign.status = status;
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, campaign });
 });
 
 // 12. Complete and Verify Task (Anti-Fraud and Economic Loop mechanics)
-app.post('/api/campaigns/:id/verify-task', (req, res) => {
+app.post('/api/campaigns/:id/verify-task', async (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { userId, verification_data } = req.body;
@@ -1529,7 +1543,7 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
   // Ensure campaign has available budget left in escrow
   if (escrow.available_amount < campaign.reward_per_action) {
     campaign.status = 'completed';
-    writeDb(db);
+    await writeDb(db);
     return res.status(400).json({ error: 'Campaign budget empty. Promotion completed.' });
   }
 
@@ -1739,7 +1753,7 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
     escrow.status = 'partially_released';
   }
 
-  writeDb(db);
+  await writeDb(db);
 
   res.json({ 
     success: true, 
@@ -1827,7 +1841,7 @@ app.get('/api/referrals/:userId', (req, res) => {
 });
 
 // 14b. Admin Authentication & Diagnostics Status Check
-app.get('/api/admin/check', (req, res) => {
+app.get('/api/admin/check', async (req, res) => {
   const initDataHeader = req.headers['x-telegram-init-data'] || req.headers['x-init-data'] || req.headers['authorization'] || req.query.initData || req.body.initData;
   const adminIdHeader = req.headers['x-telegram-id'] || req.headers['x-admin-telegram-id'] || req.query.adminTelegramId || req.body.adminTelegramId;
 
@@ -1873,7 +1887,7 @@ app.get('/api/admin/check', (req, res) => {
       if (matchedUser.role !== 'admin' || !matchedUser.is_admin) {
         matchedUser.role = 'admin';
         matchedUser.is_admin = true;
-        writeDb(db);
+        await writeDb(db);
       }
     }
   }
@@ -1961,7 +1975,7 @@ app.get('/api/admin/stats', adminAuthMiddleware, (req, res) => {
 });
 
 // 16. Admin Action: Approve/Reject Pending Task Completions
-app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, res) => {
+app.post('/api/completions/:completionId/approve', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { completionId } = req.params;
   const { approve, reason } = req.body; // boolean, string
@@ -2095,12 +2109,12 @@ app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, re
     relatedFlag.status = 'resolved';
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, completion });
 });
 
 // 17. Admin API: Toggle Blum bonding simulation
-app.post('/api/admin/bond', adminAuthMiddleware, (req, res) => {
+app.post('/api/admin/bond', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   db.config.isBonded = !db.config.isBonded;
   
@@ -2112,7 +2126,7 @@ app.post('/api/admin/bond', adminAuthMiddleware, (req, res) => {
     }
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, config: db.config });
 });
 
@@ -2156,7 +2170,7 @@ app.get('/api/claims/:userId', (req, res) => {
 });
 
 // 18.1 Submit claim
-app.post('/api/claims', (req, res) => {
+app.post('/api/claims', async (req, res) => {
   const db = readDb();
   const { userId } = req.body;
 
@@ -2245,7 +2259,7 @@ app.post('/api/claims', (req, res) => {
   }
 
   db.claims.push(newClaim);
-  writeDb(db);
+  await writeDb(db);
 
   res.json({ success: true, claim: newClaim });
 });
@@ -2263,7 +2277,7 @@ app.get('/api/admin/users', adminAuthMiddleware, (req, res) => {
   res.json(usersWithBalances);
 });
 
-app.post('/api/admin/users/:userId/status', adminAuthMiddleware, (req, res) => {
+app.post('/api/admin/users/:userId/status', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { userId } = req.params;
   const { status, quality_score } = req.body;
@@ -2276,7 +2290,7 @@ app.post('/api/admin/users/:userId/status', adminAuthMiddleware, (req, res) => {
   if (status) user.status = status;
   if (quality_score) user.quality_score = quality_score;
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true, user });
 });
 
@@ -2360,7 +2374,7 @@ app.get('/api/admin/audit-logs', adminAuthMiddleware, (req, res) => {
 });
 
 // Admin approves/rejects fraud flag
-app.post('/api/admin/fraud/:id/resolve', adminAuthMiddleware, (req, res) => {
+app.post('/api/admin/fraud/:id/resolve', adminAuthMiddleware, async (req, res) => {
   const db = readDb();
   const { id } = req.params;
   const { action } = req.body; // 'block_user' | 'dismiss'
@@ -2379,15 +2393,21 @@ app.post('/api/admin/fraud/:id/resolve', adminAuthMiddleware, (req, res) => {
   }
 
   flag.status = 'resolved';
-  writeDb(db);
+  await writeDb(db);
   res.json({ success: true });
 });
 
 
 // Serve React Frontend (Vite)
 async function startServer() {
-  // Synchronize database state with cloud Firestore before handling any requests
-  await initializeDbFromFirestore();
+  try {
+    // Synchronize database state with cloud Firestore before handling any requests
+    await initializeDbFromFirestore();
+    console.log('[Startup] Database initialization from Firestore completed.');
+  } catch (err) {
+    console.error('[Startup] CRITICAL error initializing database from Cloud Firestore:', err);
+    console.warn('[Startup] Starting Express server in SAFE MAINTENANCE MODE.');
+  }
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

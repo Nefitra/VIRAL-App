@@ -26,7 +26,7 @@ export interface DatabaseSchema {
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
 
-const INITIAL_DB: DatabaseSchema = {
+export const INITIAL_DB: DatabaseSchema = {
   users: [
     {
       id: 'admin-1',
@@ -404,15 +404,51 @@ const INITIAL_DB: DatabaseSchema = {
   referral_audit_logs: []
 };
 
+// Shared in-memory cache of the database to act as the performance layer
+let inMemoryDb: DatabaseSchema | null = null;
+
+/**
+ * Directly set or update the in-memory database cache
+ */
+export function setInMemoryDb(db: DatabaseSchema): void {
+  inMemoryDb = JSON.parse(JSON.stringify(db));
+}
+
+/**
+ * Checks whether local JSON file database fallback is allowed.
+ * Defaults to false in production (or when explicitly configured).
+ */
+export function isLocalDbFallbackEnabled(): boolean {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const envVal = process.env.ENABLE_LOCAL_DB_FALLBACK;
+  if (envVal !== undefined) {
+    return envVal === 'true';
+  }
+  return !isProduction; // false in production, true in development
+}
+
 export function readDb(): DatabaseSchema {
+  // If we have an active in-memory cache, serve directly from cache (fast, non-blocking)
+  if (inMemoryDb) {
+    return inMemoryDb;
+  }
+
+  const fallbackEnabled = isLocalDbFallbackEnabled();
+
+  if (!fallbackEnabled) {
+    // In production, we do not allow falling back to a local mock file if the database has not initialized
+    throw new Error('Database is currently unavailable. Primary Cloud Firestore has not initialized and local database fallback is disabled in production.');
+  }
+
+  // Development / Local Fallback
   try {
     if (!fs.existsSync(DB_PATH)) {
-      // Ensure the directory exists
       const dir = path.dirname(DB_PATH);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
       fs.writeFileSync(DB_PATH, JSON.stringify(INITIAL_DB, null, 2), 'utf-8');
+      inMemoryDb = JSON.parse(JSON.stringify(INITIAL_DB));
       return INITIAL_DB;
     }
     const data = fs.readFileSync(DB_PATH, 'utf-8');
@@ -420,23 +456,44 @@ export function readDb(): DatabaseSchema {
     if (!parsed.referral_audit_logs) {
       parsed.referral_audit_logs = [];
     }
+    inMemoryDb = parsed;
     return parsed;
   } catch (err) {
-    console.error('Error reading db.json:', err);
+    console.error('[Database Fallback] Error reading fallback db.json:', err);
+    inMemoryDb = JSON.parse(JSON.stringify(INITIAL_DB));
     return INITIAL_DB;
   }
 }
 
-export function writeDb(db: DatabaseSchema): void {
-  try {
-    const dir = path.dirname(DB_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+export async function writeDb(db: DatabaseSchema): Promise<void> {
+  const fallbackEnabled = isLocalDbFallbackEnabled();
+
+  // Optimistically update in-memory cache so subsequent reads within the same request lifecycle see the change
+  const previousCache = inMemoryDb ? JSON.parse(JSON.stringify(inMemoryDb)) : null;
+  inMemoryDb = JSON.parse(JSON.stringify(db));
+
+  if (fallbackEnabled) {
+    try {
+      const dir = path.dirname(DB_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('[Database Fallback] Error writing fallback db.json:', err);
     }
-    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf-8');
-    // Asynchronously synchronize modifications to cloud Firestore database
-    syncDatabaseToFirestore(db);
+  }
+
+  try {
+    // Write directly to cloud Firestore and wait for confirmation
+    await syncDatabaseToFirestore(db);
   } catch (err) {
-    console.error('Error writing db.json:', err);
+    console.error('[Database Write] Failed to write updates to Cloud Firestore:', err);
+    
+    // In production, if writing to Firestore fails, we MUST revert the in-memory cache and propagate the error!
+    if (!fallbackEnabled) {
+      inMemoryDb = previousCache; // Rollback cache
+      throw new Error(`Database Write Failure: Failed to persist critical user data to Cloud Firestore. ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

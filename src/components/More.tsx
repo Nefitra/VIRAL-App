@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import FAQ from './FAQ';
-import { roadmapSections } from '../data/launchRoadmapData';
 
 interface MoreProps {
   user: User;
@@ -61,7 +60,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
   }, [tonAddress, user.wallet_address]);
 
   // Navigation sub-tab
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'faq' | 'launch'>('profile');
+  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'faq'>('profile');
 
   // Profile update form states
   const [emailInput, setEmailInput] = useState(user.email || '');
@@ -90,43 +89,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
   }, [user.id]);
 
   // New FAQ component handles its own search, category, and accordion state internally.
-
-  // Interactive Checklist states for Launch Roadmap
-  const [checklistStates, setChecklistStates] = useState<Record<string, 'required' | 'configured' | 'pending'>>(() => {
-    const initial: Record<string, 'required' | 'configured' | 'pending'> = {};
-    roadmapSections.forEach(sec => {
-      sec.items.forEach(item => {
-        initial[item.id] = item.status;
-      });
-    });
-    return initial;
-  });
-
-  // Keep track of which roadmap sections are expanded
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    roadmapSections.forEach((sec, idx) => {
-      initial[sec.title] = idx < 2; // Expand first 2 by default
-    });
-    return initial;
-  });
-
-  const toggleSection = (title: string) => {
-    setExpandedSections(prev => ({ ...prev, [title]: !prev[title] }));
-  };
-
-  const toggleChecklistItem = (id: string) => {
-    setChecklistStates(prev => {
-      const current = prev[id];
-      const next = current === 'configured' ? 'pending' : 'configured';
-      return { ...prev, [id]: next };
-    });
-  };
-
-  // Launch readiness stats
-  const totalChecklistItems = Object.keys(checklistStates).length;
-  const configuredChecklistItems = Object.values(checklistStates).filter(s => s === 'configured').length;
-  const launchProgressPercent = Math.round((configuredChecklistItems / totalChecklistItems) * 100);
 
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -349,18 +311,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
         >
           <BookOpen className="h-3.5 w-3.5" />
           <span>Ecosystem FAQ</span>
-        </button>
-        <button
-          id="subtab-launch"
-          onClick={() => setActiveSubTab('launch')}
-          className={`flex-1 py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-            activeSubTab === 'launch'
-              ? 'bg-[#FFD36A]/15 border border-[#FFD36A]/40 text-[#FFD36A] shadow-[0_0_12px_rgba(255,211,106,0.15)]'
-              : 'border border-transparent text-[#A9A3B8] hover:text-[#FFD36A]'
-          }`}
-        >
-          <BadgeCheck className="h-3.5 w-3.5" />
-          <span>Real Launch Requirements</span>
         </button>
       </div>
 
@@ -949,168 +899,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
           >
             {/* Dedicated High-Density FAQ Component */}
             <FAQ />
-          </motion.div>
-        )}
-
-        {activeSubTab === 'launch' && (
-          <motion.div
-            key="launch-panel"
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.15 }}
-            className="space-y-4"
-          >
-            {/* Launch Readiness Dashboard Progress */}
-            <div className="rounded-xl border border-[#FFD36A]/20 bg-[#FFD36A]/5 p-4 space-y-3 relative overflow-hidden">
-              <div className="absolute -top-12 -right-12 h-24 w-24 rounded-full bg-[#FFD36A]/5 blur-2xl"></div>
-              
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-1.5">
-                  <BadgeCheck className="h-4 w-4 text-[#FFD36A]" />
-                  <h3 className="font-sans text-xs font-bold text-white uppercase tracking-wider">
-                    Ecosystem Launch Status Dashboard
-                  </h3>
-                </div>
-                <span className="text-[11px] font-mono font-bold text-[#FFD36A] bg-[#FFD36A]/10 border border-[#FFD36A]/20 px-2 py-0.5 rounded">
-                  {launchProgressPercent}% READY
-                </span>
-              </div>
-
-              <p className="text-[11px] text-[#A9A3B8] leading-relaxed font-sans">
-                Review verified checklists of parameters, branding assets, API credentials and infrastructure configs required before full production launching of the $VIRAL App.
-              </p>
-
-              {/* Progress bar */}
-              <div className="space-y-1 pt-1">
-                <div className="w-full h-2 rounded bg-[#05020D]/80 border border-[#A9A3B8]/10 overflow-hidden p-0.5">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${launchProgressPercent}%` }}
-                    className="h-full rounded bg-[#FFD36A] shadow-[0_0_8px_rgba(255,211,106,0.4)]"
-                  />
-                </div>
-                <div className="flex justify-between text-[8px] font-mono text-[#A9A3B8]">
-                  <span>{configuredChecklistItems} OF {totalChecklistItems} INTEGRATED</span>
-                  <span>{totalChecklistItems - configuredChecklistItems} REMAINING FOR MAINNET</span>
-                </div>
-              </div>
-
-              <div className="text-[10px] text-[#A9A3B8] italic pt-1 border-t border-[#A9A3B8]/5">
-                💡 Developers: Click checklist items below to visually toggle their state and calculate real-time readiness ratings dynamically!
-              </div>
-            </div>
-
-            {/* Structured Roadmap Sections */}
-            <div className="space-y-3">
-              {roadmapSections.map((sec) => {
-                const isSecExpanded = !!expandedSections[sec.title];
-                
-                // Calculate Section Specific Progress
-                const secItems = sec.items;
-                const secTotal = secItems.length;
-                const secConfigured = secItems.filter(item => checklistStates[item.id] === 'configured').length;
-                const secProgress = Math.round((secConfigured / secTotal) * 100);
-
-                return (
-                  <div 
-                    key={sec.title}
-                    className="rounded-xl border border-[#A9A3B8]/10 bg-[#0B0618]/40 glass overflow-hidden"
-                  >
-                    {/* Section Header */}
-                    <button
-                      type="button"
-                      onClick={() => toggleSection(sec.title)}
-                      className="w-full text-left p-3.5 flex items-center justify-between gap-3 cursor-pointer focus:outline-none hover:bg-[#05020D]/25 transition-all"
-                    >
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="p-2 bg-[#05020D]/60 rounded-lg border border-[#A9A3B8]/5">
-                          {renderRoadmapIcon(sec.iconName)}
-                        </span>
-                        <div className="min-w-0">
-                          <h4 className="text-xs font-bold text-white truncate font-sans">
-                            {sec.title}
-                          </h4>
-                          <span className="text-[10px] text-[#A9A3B8] block truncate font-sans font-normal">
-                            {sec.description}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded border ${
-                          secProgress === 100 
-                            ? 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5' 
-                            : 'text-[#FFD36A] border-[#FFD36A]/20 bg-[#FFD36A]/5'
-                        }`}>
-                          {secConfigured}/{secTotal}
-                        </span>
-                        <span className="text-[#A9A3B8]">
-                          {isSecExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        </span>
-                      </div>
-                    </button>
-
-                    {/* Section items list */}
-                    <AnimatePresence>
-                      {isSecExpanded && (
-                        <motion.div
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          className="overflow-hidden border-t border-[#A9A3B8]/5"
-                        >
-                          <div className="bg-[#05020D]/10 p-3 divide-y divide-[#A9A3B8]/5 space-y-2">
-                            {sec.items.map((item) => {
-                              const itemStatus = checklistStates[item.id] || item.status;
-                              const isConfigured = itemStatus === 'configured';
-
-                              return (
-                                <div 
-                                  key={item.id}
-                                  onClick={() => toggleChecklistItem(item.id)}
-                                  className="flex items-start justify-between gap-3 py-2 cursor-pointer group hover:bg-[#05020D]/20 px-1 rounded transition-all"
-                                >
-                                  <div className="flex gap-2.5 min-w-0 items-start">
-                                    <span className="mt-0.5 shrink-0 text-[#A9A3B8] group-hover:text-white">
-                                      {isConfigured ? (
-                                        <CheckSquare className="h-4 w-4 text-[#38F8B0]" />
-                                      ) : (
-                                        <Square className="h-4 w-4 text-[#A9A3B8]/40" />
-                                      )}
-                                    </span>
-                                    <div className="min-w-0">
-                                      <span className={`text-xs block font-sans leading-relaxed ${
-                                        isConfigured ? 'text-white font-medium' : 'text-[#A9A3B8]'
-                                      }`}>
-                                        {item.label}
-                                      </span>
-                                      {item.notes && (
-                                        <span className="text-[10px] font-mono text-gray-500 block mt-0.5 truncate">
-                                          {item.notes}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-
-                                  <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider shrink-0 mt-0.5 ${
-                                    isConfigured 
-                                      ? 'bg-[#38F8B0]/10 border-[#38F8B0]/20 text-[#38F8B0]' 
-                                      : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
-                                  }`}>
-                                    {isConfigured ? 'Ready' : 'Pending'}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                );
-              })}
-            </div>
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,7 +1,7 @@
 import { Firestore } from '@google-cloud/firestore';
 import fs from 'fs';
 import path from 'path';
-import { DatabaseSchema } from './db';
+import { DatabaseSchema, setInMemoryDb, INITIAL_DB, isLocalDbFallbackEnabled } from './db';
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
 
@@ -52,11 +52,24 @@ const collectionsToSync: Array<{
 ];
 
 /**
+ * Checks whether the database is healthy and ready to serve production requests.
+ * Returns false if Cloud Firestore is unavailable and local database fallback is disabled.
+ */
+export function isDbHealthy(): boolean {
+  if (!isLocalDbFallbackEnabled() && !isCloudDbAvailable) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Downloads the database state from Firestore on server startup.
  * If Firestore collections are empty, seeds Firestore using the initial database.
  */
 export async function initializeDbFromFirestore(): Promise<void> {
   console.log('[Firestore Sync] Initializing local database from Firestore cloud storage...');
+  const fallbackEnabled = isLocalDbFallbackEnabled();
+
   try {
     const freshDb: Partial<DatabaseSchema> = {};
     let hasCloudData = false;
@@ -141,36 +154,50 @@ export async function initializeDbFromFirestore(): Promise<void> {
         referral_audit_logs: freshDb.referral_audit_logs || [],
       };
 
-      // Save locally to data-db.json for fast synchronous read availability
-      fs.writeFileSync(DB_PATH, JSON.stringify(mergedDb, null, 2), 'utf-8');
+      if (fallbackEnabled) {
+        fs.writeFileSync(DB_PATH, JSON.stringify(mergedDb, null, 2), 'utf-8');
+      }
+
       lastSyncedDb = JSON.parse(JSON.stringify(mergedDb)); // clone snapshot
+      setInMemoryDb(mergedDb);
     } else {
-      console.log('[Firestore Sync] Firestore database is currently empty. Seeding Firestore using local database...');
-      // Read local database
+      console.log('[Firestore Sync] Firestore database is currently empty. Seeding Firestore using initial database...');
+      let seedDb: DatabaseSchema = INITIAL_DB;
       if (fs.existsSync(DB_PATH)) {
         try {
-          const localDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DatabaseSchema;
-          await seedFirestore(localDb);
-          lastSyncedDb = JSON.parse(JSON.stringify(localDb));
+          seedDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as DatabaseSchema;
         } catch (err) {
           console.error('[Firestore Sync] Error parsing local DB to seed Firestore:', err);
         }
-      } else {
-        console.warn('[Firestore Sync] No local data-db.json found to seed. Relying on defaults.');
       }
+      await seedFirestore(seedDb);
+      lastSyncedDb = JSON.parse(JSON.stringify(seedDb));
+      setInMemoryDb(seedDb);
     }
   } catch (err) {
     if (err instanceof Error && (err.message.includes('PERMISSION_DENIED') || err.message.includes('permission-denied') || err.message.includes('Missing or insufficient permissions'))) {
       isCloudDbAvailable = false;
-      console.warn('[Firestore Sync] WARNING: Cloud Firestore database is currently unavailable due to insufficient permissions. Self-healing fallback activated: utilizing local database filesystem as the primary persistence layer.');
+      console.warn('[Firestore Sync] WARNING: Cloud Firestore database is currently unavailable due to insufficient permissions.');
     } else {
-      console.error('[Firestore Sync] WARNING: Failed to initialize database from Firestore. Falling back to local data-db.json.', err);
+      console.error('[Firestore Sync] WARNING: Failed to initialize database from Firestore.', err);
     }
-    // On failure, load from local file to ensure app uptime
+
+    if (!fallbackEnabled) {
+      // In production, we MUST propagate the error to fail startup or activate maintenance mode
+      throw new Error(`CRITICAL: Failed to initialize Database from Cloud Firestore: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // On failure in dev, load from local file to ensure app uptime
     if (fs.existsSync(DB_PATH)) {
       try {
-        lastSyncedDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
-      } catch (e) {}
+        const localDb = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8'));
+        lastSyncedDb = JSON.parse(JSON.stringify(localDb));
+        setInMemoryDb(localDb);
+      } catch (e) {
+        setInMemoryDb(INITIAL_DB);
+      }
+    } else {
+      setInMemoryDb(INITIAL_DB);
     }
   }
 }
@@ -207,84 +234,86 @@ async function seedFirestore(db: DatabaseSchema): Promise<void> {
     console.log('[Firestore Sync Seeding] Successfully seeded all data into cloud Firestore!');
   } catch (err) {
     console.error('[Firestore Sync Seeding] Error seeding Firestore:', err);
+    throw err;
   }
 }
 
 /**
- * Asynchronously synchronizes any changes between local memory/file states and cloud Firestore.
- * Performs a highly performant diffing sync to only write modified elements.
+ * Synchronizes modifications to Cloud Firestore. Awaits successful write completion.
+ * If Firestore write fails and fallback is disabled, propagates the error to ensure consistency.
  */
-export function syncDatabaseToFirestore(newDb: DatabaseSchema): void {
-  // If cloud database is unavailable, skip synchronization and persist locally
+export async function syncDatabaseToFirestore(newDb: DatabaseSchema): Promise<void> {
+  const fallbackEnabled = isLocalDbFallbackEnabled();
+
   if (!isCloudDbAvailable) {
+    if (!fallbackEnabled) {
+      throw new Error("Cloud Firestore is currently offline or unauthorized. Writes are blocked to prevent data loss in production.");
+    }
     return;
   }
 
-  // Execute asynchronously in background to ensure 0ms latency impact to the user
-  Promise.resolve().then(async () => {
-    try {
-      if (!lastSyncedDb) {
-        // If snapshot is missing, initialize snapshot and sync everything
-        lastSyncedDb = JSON.parse(JSON.stringify(newDb));
-        await seedFirestore(newDb);
-        return;
-      }
-
-      const batch = firestore.batch();
-      let pendingOpsCount = 0;
-
-      // Check each list collection for added or updated items
-      for (const item of collectionsToSync) {
-        const newList = (newDb as any)[item.prop] || [];
-        const oldList = (lastSyncedDb as any)[item.prop] || [];
-
-        // Create mapping of old list for O(1) comparison
-        const oldMap = new Map<string, any>();
-        for (const oldItem of oldList) {
-          const id = oldItem[item.keyField];
-          if (id) oldMap.set(String(id), oldItem);
-        }
-
-        for (const newItem of newList) {
-          const id = newItem[item.keyField];
-          if (!id) continue;
-
-          const oldVal = oldMap.get(String(id));
-          // If item is new or modified, queue update
-          if (!oldVal || JSON.stringify(newItem) !== JSON.stringify(oldVal)) {
-            const docRef = firestore.collection(item.collection).doc(String(id));
-            batch.set(docRef, newItem);
-            pendingOpsCount++;
-          }
-        }
-      }
-
-      // Check system configurations
-      if (JSON.stringify(newDb.config) !== JSON.stringify(lastSyncedDb.config)) {
-        batch.set(firestore.collection('system_config').doc('config'), newDb.config);
-        pendingOpsCount++;
-      }
-      if (JSON.stringify(newDb.fee_wallet) !== JSON.stringify(lastSyncedDb.fee_wallet)) {
-        batch.set(firestore.collection('system_config').doc('fee_wallet'), newDb.fee_wallet);
-        pendingOpsCount++;
-      }
-
-      // Commit changes if any modifications were found
-      if (pendingOpsCount > 0) {
-        console.log(`[Firestore Sync] Synchronizing ${pendingOpsCount} modified records to cloud database...`);
-        await batch.commit();
-        console.log('[Firestore Sync] Cloud database synchronization completed successfully.');
-      }
-
-      // Update local memory snapshot for next sync run
+  try {
+    if (!lastSyncedDb) {
       lastSyncedDb = JSON.parse(JSON.stringify(newDb));
-    } catch (err) {
-      if (err instanceof Error && (err.message.includes('PERMISSION_DENIED') || err.message.includes('permission-denied') || err.message.includes('Missing or insufficient permissions'))) {
-        isCloudDbAvailable = false;
-        console.warn('[Firestore Sync] WARNING: Cloud Firestore permissions revoked or missing during write. Self-healing fallback activated: defaulting to local database storage.');
-      } else {
-        console.error('[Firestore Sync] Failed to synchronize updates to Firestore:', err);
+      await seedFirestore(newDb);
+      return;
+    }
+
+    const batch = firestore.batch();
+    let pendingOpsCount = 0;
+
+    // Check each list collection for added or updated items
+    for (const item of collectionsToSync) {
+      const newList = (newDb as any)[item.prop] || [];
+      const oldList = (lastSyncedDb as any)[item.prop] || [];
+
+      // Create mapping of old list for O(1) comparison
+      const oldMap = new Map<string, any>();
+      for (const oldItem of oldList) {
+        const id = oldItem[item.keyField];
+        if (id) oldMap.set(String(id), oldItem);
+      }
+
+      for (const newItem of newList) {
+        const id = newItem[item.keyField];
+        if (!id) continue;
+
+        const oldVal = oldMap.get(String(id));
+        // If item is new or modified, queue update
+        if (!oldVal || JSON.stringify(newItem) !== JSON.stringify(oldVal)) {
+          const docRef = firestore.collection(item.collection).doc(String(id));
+          batch.set(docRef, newItem);
+          pendingOpsCount++;
+        }
       }
     }
-  });
+
+    // Check system configurations
+    if (JSON.stringify(newDb.config) !== JSON.stringify(lastSyncedDb.config)) {
+      batch.set(firestore.collection('system_config').doc('config'), newDb.config);
+      pendingOpsCount++;
+    }
+    if (JSON.stringify(newDb.fee_wallet) !== JSON.stringify(lastSyncedDb.fee_wallet)) {
+      batch.set(firestore.collection('system_config').doc('fee_wallet'), newDb.fee_wallet);
+      pendingOpsCount++;
+    }
+
+    // Commit changes if any modifications were found
+    if (pendingOpsCount > 0) {
+      console.log(`[Firestore Sync] Synchronizing ${pendingOpsCount} modified records to cloud database...`);
+      await batch.commit();
+      console.log('[Firestore Sync] Cloud database synchronization completed successfully.');
+    }
+
+    // Update local snapshot for next sync run
+    lastSyncedDb = JSON.parse(JSON.stringify(newDb));
+  } catch (err) {
+    if (err instanceof Error && (err.message.includes('PERMISSION_DENIED') || err.message.includes('permission-denied') || err.message.includes('Missing or insufficient permissions'))) {
+      isCloudDbAvailable = false;
+      console.warn('[Firestore Sync] WARNING: Cloud Firestore permissions revoked or missing during write.');
+    }
+    
+    // Always propagate error so the write handler can block confirmations
+    throw err;
+  }
 }
