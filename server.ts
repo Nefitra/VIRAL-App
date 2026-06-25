@@ -389,19 +389,28 @@ app.post('/api/auth/login', (req, res) => {
     metadata: `Starter Welcome Onboarding Bonus Verified via ${currentProvider}`
   });
 
-  // Handle invitation referrals
+  // Handle invitation referrals (Section 14 with anti-abuse audits)
   if (referrer_id && referrer_id !== newUserId) {
-    const referrer = db.users.find(u => u.id === referrer_id || u.referral_code === referrer_id);
-    if (referrer && referrer.status === 'active') {
-      db.referrals.push({
-        id: generateId('ref'),
-        referrer_user_id: referrer.id,
-        invited_user_id: newUserId,
-        status: 'active',
-        total_invited_earnings: 0,
-        total_referrer_rewards: 0,
-        created_at: new Date().toISOString()
-      });
+    const referrer = db.users.find(u => 
+      u.id === referrer_id || 
+      (u.telegram_id && u.telegram_id.toString() === referrer_id.toString()) || 
+      u.referral_code === referrer_id
+    );
+    if (referrer && referrer.status === 'active' && referrer.id !== newUserId) {
+      // De-duplicate: Ensure no existing referral record exists for this invitee
+      const existingRef = db.referrals.find(r => r.invited_user_id === newUserId);
+      if (!existingRef) {
+        db.referrals.push({
+          id: generateId('ref'),
+          referrer_user_id: referrer.id,
+          invited_user_id: newUserId,
+          status: 'active',
+          total_invited_earnings: 0,
+          total_referrer_rewards: 0,
+          created_at: new Date().toISOString()
+        });
+        console.log(`[Referral Assigned] Referrer ${referrer.username} (${referrer.id}) successfully invited ${newUser.username} (${newUser.id})`);
+      }
     }
   }
 
@@ -1537,9 +1546,13 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
   const completionId = generateId('task-c');
   const rewardAmount = campaign.reward_per_action;
 
-  // Find referrer
+  // Find Level 1 referrer (Section 14)
   const referral = db.referrals.find(r => r.invited_user_id === userId && r.status === 'active');
-  const referrerReward = referral ? Math.floor(rewardAmount * 0.10) : 0; // 10% Referrer reward (Section 14)
+  const referrerReward = referral ? Math.floor(rewardAmount * 0.10) : 0; // 10% Level 1 referrer reward
+
+  // Find Level 2 referrer (The referrer of the Level 1 referrer)
+  const referralL2 = referral ? db.referrals.find(r => r.invited_user_id === referral.referrer_user_id && r.status === 'active') : undefined;
+  const referrerRewardL2 = referralL2 ? Math.floor(rewardAmount * 0.05) : 0; // 5% Level 2 referrer reward
 
   const newCompletion: TaskCompletion = {
     id: completionId,
@@ -1548,6 +1561,7 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
     action_type: campaign.campaign_type,
     reward_amount: rewardAmount,
     referral_reward_amount: referrerReward,
+    referral_reward_amount_l2: referrerRewardL2,
     status: taskStatus === 'approved' ? 'paid' : 'pending',
     risk_score: riskScore,
     verification_data: verification_data || `Completed ${campaign.campaign_type} verification routine.`,
@@ -1585,8 +1599,7 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
 
     campaign.approved_actions += 1;
 
-    // Process Referrer Reward (Section 14) - Paid from Campaign Escrow or platform rules.
-    // "Referrer receives 10% from valid earnings of invited users. Paid from campaign economics."
+    // Process Referrer Reward (Section 14 with Level 1 [10%] & Level 2 [5%] splits)
     if (referral && referrerReward > 0) {
       const referrerBalance = db.balances.find(b => b.user_id === referral.referrer_user_id);
       if (referrerBalance) {
@@ -1606,8 +1619,33 @@ app.post('/api/campaigns/:id/verify-task', (req, res) => {
           related_user_id: userId,
           direction: 'credit',
           created_at: new Date().toISOString(),
-          metadata: `Earned 10% referrer reward from @${user.username}'s activity`
+          metadata: `Earned 10% direct referrer (L1) reward from @${user.username}'s activity`
         });
+      }
+
+      // Level 2 (5%) split distribution
+      if (referralL2 && referrerRewardL2 > 0) {
+        const referrerBalanceL2 = db.balances.find(b => b.user_id === referralL2.referrer_user_id);
+        if (referrerBalanceL2) {
+          referrerBalanceL2.vviral_balance += referrerRewardL2;
+          referrerBalanceL2.updated_at = new Date().toISOString();
+
+          referralL2.total_invited_earnings += rewardAmount;
+          referralL2.total_referrer_rewards += referrerRewardL2;
+
+          db.ledger_transactions.push({
+            id: generateId('tx'),
+            user_id: referralL2.referrer_user_id,
+            amount: referrerRewardL2,
+            currency: 'vVIRAL',
+            type: 'referral_reward_l2',
+            status: 'completed',
+            related_user_id: userId,
+            direction: 'credit',
+            created_at: new Date().toISOString(),
+            metadata: `Earned 5% indirect referrer (L2) reward from @${user.username}'s activity`
+          });
+        }
       }
     }
 
@@ -1668,13 +1706,14 @@ app.get('/api/ledger/:userId', (req, res) => {
   res.json(txs);
 });
 
-// 14. Fetch Referral Stats
+// 14. Fetch Referral Stats (Level 1 [10%] & Level 2 [5%])
 app.get('/api/referrals/:userId', (req, res) => {
   const db = readDb();
   const { userId } = req.params;
 
-  const userRefs = db.referrals.filter(r => r.referrer_user_id === userId);
-  const invitedUsers = userRefs.map(ref => {
+  // Level 1 Referrals
+  const userRefsL1 = db.referrals.filter(r => r.referrer_user_id === userId);
+  const invitedUsersL1 = userRefsL1.map(ref => {
     const invitedUser = db.users.find(u => u.id === ref.invited_user_id);
     return {
       ...ref,
@@ -1683,12 +1722,39 @@ app.get('/api/referrals/:userId', (req, res) => {
     };
   });
 
-  const totalRewards = userRefs.reduce((sum, r) => sum + r.total_referrer_rewards, 0);
+  // Level 2 Referrals
+  const l1UserIds = userRefsL1.map(r => r.invited_user_id);
+  const userRefsL2 = db.referrals.filter(r => l1UserIds.includes(r.referrer_user_id));
+  const invitedUsersL2 = userRefsL2.map(ref => {
+    const invitedUser = db.users.find(u => u.id === ref.invited_user_id);
+    const viaUser = db.users.find(u => u.id === ref.referrer_user_id);
+    return {
+      ...ref,
+      invited_username: invitedUser ? invitedUser.username : 'Unknown User',
+      invited_quality: invitedUser ? invitedUser.quality_score : 'New User',
+      referred_via: viaUser ? viaUser.username : 'L1 Network'
+    };
+  });
+
+  // Calculate earnings securely from Ledger Transactions to prevent discrepancies
+  const totalReferralRewardsL1 = db.ledger_transactions
+    .filter(t => t.user_id === userId && t.type === 'referral_reward')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalReferralRewardsL2 = db.ledger_transactions
+    .filter(t => t.user_id === userId && t.type === 'referral_reward_l2')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalRewards = totalReferralRewardsL1 + totalReferralRewardsL2;
 
   res.json({
-    referrals: invitedUsers,
+    referrals: invitedUsersL1,
+    level2Referrals: invitedUsersL2,
     totalReferralRewards: totalRewards,
-    count: invitedUsers.length
+    totalReferralRewardsL1,
+    totalReferralRewardsL2,
+    count: invitedUsersL1.length,
+    countL2: invitedUsersL2.length
   });
 });
 
@@ -1879,7 +1945,7 @@ app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, re
       metadata: `Manual Admin Approval for task: ${campaign.campaign_type}`
     });
 
-    // Process Referrer Reward
+    // Process Referrer Reward (Level 1 [10%] & Level 2 [5%])
     const referral = db.referrals.find(r => r.invited_user_id === completion.user_id && r.status === 'active');
     if (referral && completion.referral_reward_amount > 0) {
       const referrerBalance = db.balances.find(b => b.user_id === referral.referrer_user_id);
@@ -1900,8 +1966,35 @@ app.post('/api/completions/:completionId/approve', adminAuthMiddleware, (req, re
           related_user_id: completion.user_id,
           direction: 'credit',
           created_at: new Date().toISOString(),
-          metadata: `10% manual referral reward from @${earnerUser.username}`
+          metadata: `10% manual direct referrer (L1) reward from @${earnerUser.username}'s activity`
         });
+      }
+
+      // Check for Level 2 Referrer (The referrer of the Level 1 referrer)
+      const referralL2 = db.referrals.find(r => r.invited_user_id === referral.referrer_user_id && r.status === 'active');
+      const referrerRewardL2 = Math.floor(completion.reward_amount * 0.05); // 5% Level 2 reward
+      if (referralL2 && referrerRewardL2 > 0) {
+        const referrerBalanceL2 = db.balances.find(b => b.user_id === referralL2.referrer_user_id);
+        if (referrerBalanceL2) {
+          referrerBalanceL2.vviral_balance += referrerRewardL2;
+          referrerBalanceL2.updated_at = new Date().toISOString();
+
+          referralL2.total_invited_earnings += completion.reward_amount;
+          referralL2.total_referrer_rewards += referrerRewardL2;
+
+          db.ledger_transactions.push({
+            id: generateId('tx'),
+            user_id: referralL2.referrer_user_id,
+            amount: referrerRewardL2,
+            currency: 'vVIRAL',
+            type: 'referral_reward_l2',
+            status: 'completed',
+            related_user_id: completion.user_id,
+            direction: 'credit',
+            created_at: new Date().toISOString(),
+            metadata: `5% manual indirect referrer (L2) reward from @${earnerUser.username}'s activity`
+          });
+        }
       }
     }
 

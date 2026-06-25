@@ -240,6 +240,15 @@ const INITIAL_DB: DatabaseSchema = {
   ],
   referrals: [
     {
+      id: 'ref-0',
+      referrer_user_id: 'admin-1',
+      invited_user_id: 'promoter-1',
+      status: 'active',
+      total_invited_earnings: 2000,
+      total_referrer_rewards: 200,
+      created_at: new Date('2026-06-10T00:00:00.000Z').toISOString()
+    },
+    {
       id: 'ref-1',
       referrer_user_id: 'promoter-1',
       invited_user_id: 'earner-1',
@@ -250,6 +259,30 @@ const INITIAL_DB: DatabaseSchema = {
     }
   ],
   ledger_transactions: [
+    {
+      id: 'tx-ref-l1',
+      user_id: 'admin-1',
+      amount: 200,
+      currency: 'vVIRAL',
+      type: 'referral_reward',
+      status: 'completed',
+      related_user_id: 'promoter-1',
+      direction: 'credit',
+      created_at: new Date('2026-06-16T12:00:00.000Z').toISOString(),
+      metadata: 'Earned 10% direct referrer (L1) reward from @Web3Builder'
+    },
+    {
+      id: 'tx-ref-l2',
+      user_id: 'admin-1',
+      amount: 50,
+      currency: 'vVIRAL',
+      type: 'referral_reward_l2',
+      status: 'completed',
+      related_user_id: 'earner-1',
+      direction: 'credit',
+      created_at: new Date('2026-06-16T12:00:00.000Z').toISOString(),
+      metadata: 'Earned 5% indirect referrer (L2) reward from @TON_Sniper'
+    },
     {
       id: 'tx-1',
       user_id: 'promoter-1',

@@ -5,7 +5,7 @@ import {
   HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen, Trophy, Info, Sparkles,
   Palette, Coins, Lock, ShieldCheck as ShieldCheckIcon, Share2, Percent, Settings, Zap, FileText, Database,
   CheckSquare, Square, CheckCircle2, AlertCircle, Plus, Minus, Search, ChevronDown, ChevronUp, ArrowRight, RefreshCw,
-  Terminal
+  Terminal, LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import FAQ from './FAQ';
@@ -17,9 +17,10 @@ interface MoreProps {
   onProfileUpdated: () => void;
   onOpenAdminCheck?: () => void;
   onOpenAdminSection?: () => void;
+  onSignOut?: () => void;
 }
 
-export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck, onOpenAdminSection }: MoreProps) {
+export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck, onOpenAdminSection, onSignOut }: MoreProps) {
   const tonAddress = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
@@ -820,6 +821,18 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
                         </div>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {onSignOut && (
+                  <div className="pt-2.5 border-t border-[#A9A3B8]/5">
+                    <button
+                      type="button"
+                      onClick={onSignOut}
+                      className="w-full rounded-lg border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 px-3 py-2.5 text-xs font-bold text-red-400 cursor-pointer transition-all flex items-center justify-center gap-2"
+                    >
+                      <LogOut className="h-3.5 w-3.5" /> Sign Out / Switch Account
+                    </button>
                   </div>
                 )}
               </div>

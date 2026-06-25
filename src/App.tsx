@@ -132,12 +132,31 @@ function MainApp() {
     }
   }, [tonFriendlyAddress, currentUser?.id]);
 
-  // Initial fetch for the default session
+  // Capture referrer ID and load default session
   useEffect(() => {
     const tgWebApp = (window as any).Telegram?.WebApp;
     const tgUser = tgWebApp?.initDataUnsafe?.user;
     const initData = tgWebApp?.initData;
 
+    // 1. Capture Referrer ID from Telegram start_param or URL
+    let refId: string | null = null;
+    const startParam = tgWebApp?.initDataUnsafe?.start_param;
+    if (startParam) {
+      refId = startParam.startsWith('ref_') ? startParam.substring(4) : startParam;
+    }
+    if (!refId) {
+      const urlParams = new URLSearchParams(window.location.search);
+      const start = urlParams.get('start') || urlParams.get('ref') || urlParams.get('tgWebAppStartParam');
+      if (start) {
+        refId = start.startsWith('ref_') ? start.substring(4) : start;
+      }
+    }
+    if (refId) {
+      sessionStorage.setItem('viral_referrer_id', refId);
+      console.log('[Referral System] Stored referrer_id in sessionStorage:', refId);
+    }
+
+    // 2. Auth Flow
     if (tgUser && tgUser.id) {
       // Real Telegram WebApp Environment - log in using real credentials!
       fetch('/api/auth/login', {
@@ -149,7 +168,8 @@ function MainApp() {
         body: JSON.stringify({
           telegram_id: tgUser.id.toString(),
           username: tgUser.username || `tg_${tgUser.id}`,
-          initData: initData || ''
+          initData: initData || '',
+          referrer_id: refId || sessionStorage.getItem('viral_referrer_id') || undefined
         })
       })
         .then(res => res.json())
@@ -157,6 +177,11 @@ function MainApp() {
           if (!data.error) {
             setCurrentUser(data.user);
             setCurrentBalance(data.balance);
+            localStorage.setItem('viral_login_payload', JSON.stringify({
+              provider: 'telegram',
+              telegram_id: data.user.telegram_id,
+              username: data.user.username
+            }));
             showToast(`Synced Telegram Session: @${data.user.username}`, 'success', 'Ecosystem Authenticated');
           } else {
             setAuthError(data.error);
@@ -166,30 +191,51 @@ function MainApp() {
           console.error('Telegram auto-auth error:', err);
         });
     } else {
-      // Fallback/Simulation mode in browser
-      handleLoginSimulation('11223344', 'TON_Sniper', undefined, true);
+      // Fallback/Simulation mode check: Retrieve saved session if exists
+      const savedPayload = localStorage.getItem('viral_login_payload');
+      if (savedPayload) {
+        try {
+          const payload = JSON.parse(savedPayload);
+          handleLoginSimulation(payload.telegram_id, payload.username, payload.email, true);
+        } catch (e) {
+          localStorage.removeItem('viral_login_payload');
+        }
+      } else {
+        // DO NOT automatically sign in as TON_Sniper. Let user log in or select account!
+        console.log('[Auth System] No active session found. Showing login portal.');
+      }
     }
   }, []);
 
   const handleLoginSimulation = (tgId: string, username: string, email?: string, isSilent = false) => {
     setAuthError('');
+    const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
     fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         telegram_id: tgId,
         username,
-        email
+        email,
+        referrer_id: referrerId
       })
     })
       .then(res => res.json())
       .then(data => {
         if (data.error) {
-          setAuthError(data.error);
-          showToast(data.error, 'error', 'Error');
+          if (!isSilent) {
+            setAuthError(data.error);
+            showToast(data.error, 'error', 'Error');
+          }
         } else {
           setCurrentUser(data.user);
           setCurrentBalance(data.balance);
+          localStorage.setItem('viral_login_payload', JSON.stringify({
+            provider: email ? 'google' : 'telegram',
+            telegram_id: tgId,
+            username,
+            email
+          }));
           setActiveTab('home');
           if (!isSilent) {
             showToast(`Switched session to @${username}`, 'success', 'Session Synced');
@@ -198,8 +244,10 @@ function MainApp() {
       })
       .catch(err => {
         console.error('Login error:', err);
-        setAuthError('Ecosystem server offline. Please compile and try again.');
-        showToast('Ecosystem server offline.', 'error', 'Network Failure');
+        if (!isSilent) {
+          setAuthError('Ecosystem server offline. Please compile and try again.');
+          showToast('Ecosystem server offline.', 'error', 'Network Failure');
+        }
       });
   };
 
@@ -207,15 +255,18 @@ function MainApp() {
     e.preventDefault();
     setAuthError('');
 
+    const referrerId = sessionStorage.getItem('viral_referrer_id') || undefined;
     const payload = loginMethod === 'telegram' ? {
       provider: 'telegram',
       telegram_id: mockTgId,
-      username: mockUsername
+      username: mockUsername,
+      referrer_id: referrerId
     } : {
       provider: 'google',
       google_id: googleSubId,
       email: googleEmail,
-      username: googleEmail.split('@')[0]
+      username: googleEmail.split('@')[0],
+      referrer_id: referrerId
     };
 
     fetch('/api/auth/login', {
@@ -231,6 +282,12 @@ function MainApp() {
         } else {
           setCurrentUser(data.user);
           setCurrentBalance(data.balance);
+          localStorage.setItem('viral_login_payload', JSON.stringify({
+            provider: loginMethod,
+            telegram_id: loginMethod === 'telegram' ? mockTgId : googleSubId,
+            username: loginMethod === 'telegram' ? mockUsername : googleEmail.split('@')[0],
+            email: loginMethod === 'google' ? googleEmail : undefined
+          }));
           setActiveTab('home');
           showToast(`Logged in successfully as @${data.user.username}`, 'success', 'Ecosystem Authenticated');
         }
@@ -267,6 +324,14 @@ function MainApp() {
     setSelectedCampaignFromDiscover(campaign);
     setActiveTab('earn');
     showToast(`Selected campaign: ${campaign.title}. Headed to Earn tab!`, 'info', 'Campaign Selected');
+  };
+
+  const handleSignOut = () => {
+    localStorage.removeItem('viral_login_payload');
+    setCurrentUser(null);
+    setCurrentBalance(null);
+    setActiveTab('home');
+    showToast('Signed out successfully. Switchable profile active.', 'success', 'Session Terminated');
   };
 
   return (
@@ -401,6 +466,7 @@ function MainApp() {
                 onProfileUpdated={reloadUserAndBalance} 
                 onOpenAdminCheck={() => setActiveTab('admin-check')}
                 onOpenAdminSection={() => setActiveTab('admin')}
+                onSignOut={handleSignOut}
               />
             )}
 

@@ -92,6 +92,7 @@ export interface TaskCompletion {
   action_type: string;
   reward_amount: number;
   referral_reward_amount: number;
+  referral_reward_amount_l2?: number;
   status: 'pending' | 'under_review' | 'approved' | 'paid' | 'rejected' | 'refunded';
   risk_score: number;
   verification_data: string;
