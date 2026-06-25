@@ -26,7 +26,7 @@ export default function Referrals({ user }: ReferralsProps) {
   }, [user.id]);
 
   // Generate unique referral link using their Telegram ID if available, otherwise internal ID
-  const referralLink = `https://t.me/Viral_App_Bot?start=ref_${user.telegram_id || user.id}`;
+  const referralLink = `https://t.me/Viral_App_Bot/app?startapp=ref_${user.telegram_id || user.id}`;
   const shareText = "🚀 Earn free tokens on the $VIRAL Promotion Ecosystem by completing simple social campaigns! Join now via my network:";
   const telegramShareUrl = `https://t.me/share/url?url=${encodeURIComponent(referralLink)}&text=${encodeURIComponent(shareText)}`;
 
