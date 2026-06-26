@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Plus, ShieldAlert, Coins, Sparkles, PlusCircle, LayoutGrid, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Rocket, Plus, ShieldAlert, Coins, Sparkles, PlusCircle, LayoutGrid, CheckCircle, ArrowLeft, Shield, RefreshCw, AlertTriangle, FileText } from 'lucide-react';
 import { User, Balance, Resource } from '../types';
 import { useToast } from './Toast';
 
@@ -16,6 +16,8 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
   const [loading, setLoading] = useState(true);
   const [showAddResource, setShowAddResource] = useState(false);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
+  const [verifyingResId, setVerifyingResId] = useState<string | null>(null);
+  const [activeLogResId, setActiveLogResId] = useState<string | null>(null);
 
   // Resource Form States
   const [resTitle, setResTitle] = useState('');
@@ -108,6 +110,51 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
       });
   };
 
+  const handleVerifyCode = (resId: string) => {
+    setVerifyingResId(resId);
+    fetch(`/api/resources/${resId}/verify-code`, {
+      method: 'POST'
+    })
+      .then(res => res.json())
+      .then(data => {
+        setVerifyingResId(null);
+        if (data.error) {
+          showToast(data.error, 'error', 'Verification Failed');
+        } else if (data.verified) {
+          showToast('Ownership verified successfully! Security shield activated.', 'success', 'Verified');
+          fetchResources();
+        } else {
+          showToast(data.message || 'Verification code not found. Please double check bio description.', 'error', 'Check Failed');
+          fetchResources();
+        }
+      })
+      .catch(() => {
+        setVerifyingResId(null);
+        showToast('Network error during verification.', 'error', 'Connection Error');
+      });
+  };
+
+  const handleReRunScan = (resId: string) => {
+    setVerifyingResId(resId);
+    fetch(`/api/resources/${resId}/re-run`, {
+      method: 'POST'
+    })
+      .then(res => res.json())
+      .then(data => {
+        setVerifyingResId(null);
+        if (data.error) {
+          showToast(data.error, 'error', 'AI Scan Failed');
+        } else {
+          showToast('AI automated moderation and technical checks completed!', 'success', 'Scan Finished');
+          fetchResources();
+        }
+      })
+      .catch(() => {
+        setVerifyingResId(null);
+        showToast('Network error during scanning.', 'error', 'Connection Error');
+      });
+  };
+
   const handleCreateCampaign = (e: React.FormEvent) => {
     e.preventDefault();
     setCampError('');
@@ -120,6 +167,28 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
       const err = 'Please select or add a promotion resource first.';
       setCampError(err);
       showToast(err, 'error', 'Campaign Error');
+      return;
+    }
+
+    const selectedResource = resources.find(r => r.id === selectedResId);
+    if (!selectedResource) {
+      const err = 'Selected resource not found.';
+      setCampError(err);
+      showToast(err, 'error', 'Campaign Error');
+      return;
+    }
+
+    if (selectedResource.status !== 'approved') {
+      const err = `This asset is currently [${selectedResource.status.toUpperCase()}]. Campaigns can only be launched for fully approved assets (status: 'approved').`;
+      setCampError(err);
+      showToast(err, 'error', 'Resource Not Approved');
+      return;
+    }
+
+    if (selectedResource.ownership_status !== 'verified') {
+      const err = 'Asset ownership is not verified yet. Please complete ownership verification before launching campaigns.';
+      setCampError(err);
+      showToast(err, 'error', 'Verification Required');
       return;
     }
     if (budget <= 0 || isNaN(budget)) {
@@ -479,14 +548,52 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
           {campError && <div className="text-[11px] text-[#FF4D6D] bg-[#FF4D6D]/10 border border-[#FF4D6D]/20 p-2.5 rounded-lg">{campError}</div>}
           {campSuccess && <div className="text-[11px] text-[#38F8B0] bg-[#38F8B0]/10 border border-[#38F8B0]/20 p-2.5 rounded-lg">{campSuccess}</div>}
 
-          <button
-            id="promote-submit-campaign"
-            type="submit"
-            className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:opacity-95 text-xs font-bold py-2.5 text-white shadow-lg shadow-[#8A2BFF]/20 cursor-pointer"
-          >
-            <ShieldAlert className="h-4 w-4" />
-            Lock Escrow and Launch
-          </button>
+          {(() => {
+            const selectedRes = resources.find(r => r.id === selectedResId);
+            if (!selectedRes) return null;
+            const isApproved = selectedRes.status === 'approved';
+            const isVerified = selectedRes.ownership_status === 'verified';
+            
+            if (!isApproved || !isVerified) {
+              return (
+                <div className="rounded-lg bg-[#FF4D6D]/10 border border-[#FF4D6D]/25 p-3 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#FF4D6D]">
+                    <ShieldAlert className="h-4 w-4" />
+                    Campaign Creation Locked
+                  </div>
+                  <p className="text-[10px] text-[#A9A3B8] leading-relaxed">
+                    {!isApproved && `• Status of selected asset is [${selectedRes.status.toUpperCase()}]. Assets must be fully APPROVED (Verified by VIRAL) before launching campaigns.`}
+                    {!isApproved && <br />}
+                    {!isVerified && `• Ownership of selected asset is [UNVERIFIED]. Please go to Your Assets Portfolio below and verify ownership first.`}
+                  </p>
+                </div>
+              );
+            }
+            return null;
+          })()}
+
+          {(() => {
+            const selectedRes = resources.find(r => r.id === selectedResId);
+            const isApproved = selectedRes?.status === 'approved';
+            const isVerified = selectedRes?.ownership_status === 'verified';
+            const isBlocked = !isApproved || !isVerified;
+
+            return (
+              <button
+                id="promote-submit-campaign"
+                type="submit"
+                disabled={isBlocked}
+                className={`w-full inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-bold py-2.5 text-white shadow-lg transition-all ${
+                  isBlocked
+                    ? 'bg-neutral-800 text-neutral-500 border border-neutral-700 cursor-not-allowed shadow-none'
+                    : 'bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:opacity-95 shadow-[#8A2BFF]/20 cursor-pointer'
+                }`}
+              >
+                <ShieldAlert className="h-4 w-4" />
+                {isBlocked ? 'Campaign Locked (Review Required)' : 'Lock Escrow and Launch'}
+              </button>
+            );
+          })()}
         </form>
       )}
 
@@ -503,42 +610,265 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
             You have not submitted any promotion resources yet. Click 'Add Resource' to start!
           </div>
         ) : (
-          <div className="grid gap-2.5 sm:grid-cols-2">
-            {resources.map((res) => (
-              <div key={res.id} className="flex gap-3 items-center justify-between p-3 rounded-lg border border-[#8A2BFF]/15 glass hover:border-[#8A2BFF]/35 transition-all">
-                <div className="flex gap-2.5 items-center min-w-0">
-                  <img
-                    referrerPolicy="no-referrer"
-                    src={res.image_url}
-                    alt={res.title}
-                    className="h-8 w-8 rounded-md object-cover bg-neutral-800 border border-[#A9A3B8]/10"
-                  />
-                  <div className="min-w-0">
-                    <h4 className="text-xs font-bold text-white truncate uppercase tracking-tight">{res.title}</h4>
-                    <span className="rounded bg-[#8A2BFF]/10 border border-[#8A2BFF]/20 text-[#B066FF] px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase mt-0.5 inline-block">
-                      {res.type}
-                    </span>
-                    {res.status === 'rejected' && (res as any).rejection_reason && (
-                      <p className="text-[10px] text-[#FF4D6D] mt-1 font-sans italic leading-tight">
-                        Reason: {(res as any).rejection_reason}
-                      </p>
-                    )}
-                  </div>
-                </div>
+          <div className="grid gap-3 grid-cols-1">
+            {resources.map((res) => {
+              const isApproved = res.status === 'approved';
+              const isVerified = res.ownership_status === 'verified';
+              const isVerifying = verifyingResId === res.id;
+              
+              // Trust Score Details
+              const trustScore = res.trust_score !== undefined ? res.trust_score : 50;
+              const riskLevel = res.risk_level || 'Medium Risk';
+              
+              // Set colors based on risk
+              let scoreColor = 'text-[#38F8B0]';
+              let scoreBg = 'bg-[#38F8B0]/10';
+              let barColor = 'bg-[#38F8B0]';
+              if (trustScore > 20 && trustScore <= 40) {
+                scoreColor = 'text-[#a2ff54]';
+                scoreBg = 'bg-[#a2ff54]/10';
+                barColor = 'bg-[#a2ff54]';
+              } else if (trustScore > 40 && trustScore <= 60) {
+                scoreColor = 'text-[#FFD36A]';
+                scoreBg = 'bg-[#FFD36A]/10';
+                barColor = 'bg-[#FFD36A]';
+              } else if (trustScore > 60 && trustScore <= 80) {
+                scoreColor = 'text-[#FF9F43]';
+                scoreBg = 'bg-[#FF9F43]/10';
+                barColor = 'bg-[#FF9F43]';
+              } else if (trustScore > 80) {
+                scoreColor = 'text-[#FF4D6D]';
+                scoreBg = 'bg-[#FF4D6D]/10';
+                barColor = 'bg-[#FF4D6D]';
+              }
 
-                <div className="text-right shrink-0">
-                  <span className={`text-[8px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wider ${
-                    res.status === 'approved' 
-                      ? 'bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/15' 
-                      : res.status === 'pending' 
-                        ? 'bg-[#FFD36A]/10 text-[#FFD36A] border border-[#FFD36A]/15' 
-                        : 'bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/15'
-                  }`}>
-                    {res.status}
-                  </span>
+              return (
+                <div key={res.id} className="p-4 rounded-xl border border-[#8A2BFF]/15 bg-[#0B0618]/90 glass space-y-4 transition-all hover:border-[#8A2BFF]/40">
+                  {/* Title & Top Badges */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#A9A3B8]/10">
+                    <div className="flex gap-3 items-center min-w-0">
+                      <img
+                        referrerPolicy="no-referrer"
+                        src={res.image_url}
+                        alt={res.title}
+                        className="h-10 w-10 rounded-lg object-cover bg-neutral-800 border border-[#A9A3B8]/15"
+                      />
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-bold text-white truncate uppercase tracking-tight">{res.title}</h4>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="rounded bg-[#8A2BFF]/10 border border-[#8A2BFF]/20 text-[#B066FF] px-1.5 py-0.5 text-[8px] font-mono uppercase">
+                            {res.type}
+                          </span>
+                          <span className="rounded bg-[#A9A3B8]/5 border border-[#A9A3B8]/10 text-[#A9A3B8] px-1.5 py-0.5 text-[8px] font-mono">
+                            {res.category || 'General'}
+                          </span>
+                          <a 
+                            href={res.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="text-[8px] font-mono text-[#8A2BFF] hover:underline truncate max-w-[120px]"
+                          >
+                            {res.url}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Ownership Shield */}
+                      {isVerified ? (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#38F8B0] bg-[#38F8B0]/10 border border-[#38F8B0]/20 rounded-md px-2 py-1">
+                          <Shield className="h-3 w-3 fill-[#38F8B0]/20" />
+                          OWNERSHIP OK
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[#FFD36A] bg-[#FFD36A]/10 border border-[#FFD36A]/20 rounded-md px-2 py-1 animate-pulse">
+                          <AlertTriangle className="h-3 w-3" />
+                          UNVERIFIED
+                        </span>
+                      )}
+
+                      {/* Moderation Status */}
+                      <span className={`text-[9px] font-bold rounded px-2 py-1 uppercase tracking-wider border ${
+                        res.status === 'approved' 
+                          ? 'bg-[#38F8B0]/15 text-[#38F8B0] border-[#38F8B0]/30' 
+                          : res.status === 'pending_review'
+                            ? 'bg-[#8A2BFF]/15 text-[#B066FF] border-[#8A2BFF]/30 animate-pulse'
+                            : res.status === 'pending' 
+                              ? 'bg-[#FFD36A]/15 text-[#FFD36A] border-[#FFD36A]/30' 
+                              : 'bg-[#FF4D6D]/15 text-[#FF4D6D] border-[#FF4D6D]/30'
+                      }`}>
+                        {res.status === 'approved' ? 'Verified by VIRAL' : res.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Sub-panels depending on verification status */}
+                  {!isVerified && (
+                    <div className="rounded-lg bg-[#FFD36A]/5 border border-[#FFD36A]/15 p-3 space-y-2 text-[11px]">
+                      <div className="font-bold text-[#FFD36A] flex items-center gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        Action Required: Verify Asset Ownership
+                      </div>
+                      
+                      {res.type === 'bot' ? (
+                        <p className="text-[#A9A3B8] leading-relaxed text-[10px]">
+                          Please add the following verification code to your bot's **public bio / description** on Telegram, then click the verification button below so our automated crawler can verify your ownership:
+                        </p>
+                      ) : res.type === 'channel' ? (
+                        <p className="text-[#A9A3B8] leading-relaxed text-[10px]">
+                          Please add the official bot <code className="text-white">@Viral_App_Bot</code> as an administrator in your channel with minimal (read-only) permissions, then click verify below:
+                        </p>
+                      ) : (
+                        <p className="text-[#A9A3B8] leading-relaxed text-[10px]">
+                          Confirm web asset availability and secure HTTPS reachability. Click verify to test:
+                        </p>
+                      )}
+
+                      {res.type === 'bot' && res.verification_code && (
+                        <div className="flex items-center justify-between rounded bg-[#05020D] border border-[#FFD36A]/10 p-2 font-mono text-xs text-white">
+                          <span>{res.verification_code}</span>
+                          <button 
+                            type="button" 
+                            onClick={() => {
+                              navigator.clipboard.writeText(res.verification_code || '');
+                              showToast('Code copied to clipboard!', 'success', 'Copied');
+                            }}
+                            className="text-[10px] text-[#8A2BFF] hover:underline cursor-pointer"
+                          >
+                            Copy Code
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          disabled={isVerifying}
+                          onClick={() => handleVerifyCode(res.id)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gradient-to-r from-[#FFD36A] to-[#FFA800] hover:opacity-90 text-neutral-900 font-bold text-[10px] transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {isVerifying ? (
+                            <>
+                              <RefreshCw className="h-3 w-3 animate-spin" /> Checking asset...
+                            </>
+                          ) : (
+                            <>
+                              <Shield className="h-3 w-3" /> Verify Asset Ownership
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Trust Score Metric & AI Report */}
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-3 pt-1">
+                    {/* Left: Score Gauge */}
+                    <div className="md:col-span-4 rounded-lg bg-[#05020D]/60 border border-[#A9A3B8]/10 p-3 flex flex-col justify-between space-y-2">
+                      <div className="text-[9px] font-mono text-[#A9A3B8] uppercase tracking-wider">AI Automated Trust Score</div>
+                      
+                      <div className="flex items-baseline gap-2">
+                        <span className={`text-2xl font-black ${scoreColor}`}>{trustScore}</span>
+                        <span className="text-[10px] text-[#A9A3B8]">/ 100</span>
+                      </div>
+
+                      {/* Visual Progress Bar */}
+                      <div className="w-full h-1.5 rounded-full bg-neutral-800 overflow-hidden">
+                        <div className={`h-full ${barColor}`} style={{ width: `${Math.max(2, Math.min(100, 100 - trustScore))}%` }}></div>
+                      </div>
+
+                      <div className="flex justify-between items-center">
+                        <span className={`text-[10px] font-bold ${scoreColor} uppercase`}>{riskLevel}</span>
+                        <span className="text-[9px] text-[#A9A3B8] font-mono">Safety Index</span>
+                      </div>
+                    </div>
+
+                    {/* Right: AI Summary */}
+                    <div className="md:col-span-8 rounded-lg bg-[#05020D]/60 border border-[#A9A3B8]/10 p-3 flex flex-col justify-between text-[11px] space-y-1.5">
+                      <div className="text-[9px] font-mono text-[#A9A3B8] uppercase tracking-wider flex items-center justify-between">
+                        <span>Gemini Moderation Analysis</span>
+                        {res.detected_flags && res.detected_flags.length > 0 && (
+                          <span className="text-[#FF4D6D] font-bold animate-pulse text-[8px] border border-[#FF4D6D]/30 bg-[#FF4D6D]/10 px-1 rounded">
+                            FLAGS: {res.detected_flags.join(', ')}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-white text-[11px] leading-relaxed line-clamp-2 italic">
+                        "{res.ai_summary || 'Analysis pending background scan. Click Refresh below to query model.'}"
+                      </p>
+
+                      <div className="flex items-center justify-between border-t border-[#A9A3B8]/5 pt-2 mt-1">
+                        <span className="text-[10px] text-[#A9A3B8] truncate max-w-[70%]">
+                          Recommendation: <span className="text-white font-medium">{res.ai_recommendation || 'Wait for automated scan.'}</span>
+                        </span>
+
+                        <div className="flex gap-2">
+                          {/* Log Button */}
+                          <button
+                            type="button"
+                            onClick={() => setActiveLogResId(activeLogResId === res.id ? null : res.id)}
+                            className="text-[9px] font-mono text-[#B066FF] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                          >
+                            <FileText className="h-3 w-3" />
+                            {activeLogResId === res.id ? 'Hide Logs' : 'View Logs'}
+                          </button>
+
+                          {/* Re-run Button */}
+                          <button
+                            type="button"
+                            disabled={isVerifying}
+                            onClick={() => handleReRunScan(res.id)}
+                            className="text-[9px] font-mono text-[#38F8B0] hover:underline inline-flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${isVerifying ? 'animate-spin' : ''}`} />
+                            Refresh Scan
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Logs Dropdown */}
+                  {activeLogResId === res.id && (
+                    <div className="rounded-lg bg-[#05020D] border border-[#A9A3B8]/15 p-3 space-y-2">
+                      <div className="text-[10px] font-mono text-[#B066FF] uppercase tracking-wider pb-1.5 border-b border-[#A9A3B8]/5">
+                        Moderation Log & Verification History
+                      </div>
+                      <div className="max-h-40 overflow-y-auto space-y-1 font-mono text-[9px] text-[#A9A3B8] leading-normal divide-y divide-[#A9A3B8]/5">
+                        {res.moderation_logs && res.moderation_logs.length > 0 ? (
+                          res.moderation_logs.map((log, lIdx) => (
+                            <div key={lIdx} className="py-1">
+                              {log}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-2 text-neutral-600">No moderation event logs found yet.</div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Rejection / Request Changes Feedback */}
+                  {res.status === 'pending' && (res as any).rejection_reason && (
+                    <div className="rounded-lg bg-[#FFD36A]/5 border border-[#FFD36A]/20 p-2.5 text-[10px] text-[#FFD36A] leading-relaxed">
+                      <strong>⚠️ Changes Requested:</strong> {(res as any).rejection_reason}
+                    </div>
+                  )}
+                  {res.status === 'rejected' && (res as any).rejection_reason && (
+                    <div className="rounded-lg bg-[#FF4D6D]/5 border border-[#FF4D6D]/20 p-2.5 text-[10px] text-[#FF4D6D] leading-relaxed">
+                      <strong>🚨 Rejection Reason:</strong> {(res as any).rejection_reason}
+                    </div>
+                  )}
+                  {res.status === 'suspended' && (res as any).rejection_reason && (
+                    <div className="rounded-lg bg-[#FF4D6D]/5 border border-[#FF4D6D]/20 p-2.5 text-[10px] text-[#FF4D6D] leading-relaxed">
+                      <strong>🛑 Suspended:</strong> {(res as any).rejection_reason}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

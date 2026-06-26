@@ -18,6 +18,9 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const [fraudFlags, setFraudFlags] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentAdminTab, setCurrentAdminTab] = useState<'status' | 'users' | 'resources' | 'campaigns' | 'escrow' | 'rewards' | 'referrals' | 'fraud' | 'feewallet' | 'claim' | 'settings' | 'logs'>('status');
+  const [modFilter, setModFilter] = useState<string>('pending_review');
+  const [adminReasons, setAdminReasons] = useState<{[key: string]: string}>({});
+  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
 
   // Real Database Lists States
   const [usersList, setUsersList] = useState<any[]>([]);
@@ -37,6 +40,10 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
     fraudLogs: [],
     rejectedCompletions: []
   });
+  const [aiLearning, setAiLearning] = useState<{ records: any[]; analytics: any }>({
+    records: [],
+    analytics: { total_compared: 0, aligned_recommendations: 0, accuracy_rate: 100 }
+  });
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
@@ -55,14 +62,19 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
 
   const fetchAuditLogs = () => {
     setLoadingAudit(true);
-    adminFetch('/api/admin/audit-logs')
-      .then(res => res.json())
-      .then(data => {
-        setAuditLogs(data);
+    Promise.all([
+      adminFetch('/api/admin/audit-logs').then(res => res.json()),
+      adminFetch('/api/admin/ai-learning').then(res => res.json())
+    ])
+      .then(([auditData, learningData]) => {
+        setAuditLogs(auditData);
+        if (learningData && learningData.records) {
+          setAiLearning(learningData);
+        }
         setLoadingAudit(false);
       })
       .catch(err => {
-        console.error('Error fetching audit logs:', err);
+        console.error('Error fetching audit logs & AI learning records:', err);
         setLoadingAudit(false);
       });
   };
@@ -84,7 +96,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
     ])
       .then(([statsData, resourcesData, completionsData, fraudData, usersData, campaignsData, escrowsData, referralsData, claimsData]) => {
         setStats(statsData);
-        setResources(resourcesData.filter((r: any) => r.status === 'pending'));
+        setResources(resourcesData || []);
         setCompletions(completionsData);
         setFraudFlags(fraudData.filter((f: any) => f.status === 'pending'));
         setUsersList(usersData || []);
@@ -146,11 +158,44 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
       .catch(err => console.error(err));
   };
 
-  const handleApproveResource = (id: string, status: 'approved' | 'rejected') => {
+  const handleApproveResource = (id: string, status: string, reason?: string) => {
     adminFetch(`/api/resources/${id}/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status })
+      body: JSON.stringify({ status, reason })
+    })
+      .then(res => res.json())
+      .then(() => fetchAdminData())
+      .catch(err => console.error(err));
+  };
+
+  const [runningContinuous, setRunningContinuous] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+
+  const handleContinuousScan = () => {
+    setRunningContinuous(true);
+    setScanMessage('Executing autonomous rescan across active assets...');
+    adminFetch('/api/admin/continuous-scan', {
+      method: 'POST'
+    })
+      .then(res => res.json())
+      .then((data) => {
+        fetchAdminData();
+        setRunningContinuous(false);
+        setScanMessage(`Success: Completed continuous rescan on ${data.scanned_count || 0} assets. Lockdowns triggered if risk scores deteriorated.`);
+        setTimeout(() => setScanMessage(null), 6000);
+      })
+      .catch(err => {
+        console.error(err);
+        setRunningContinuous(false);
+        setScanMessage('Failed to execute continuous scan.');
+        setTimeout(() => setScanMessage(null), 4000);
+      });
+  };
+
+  const handleReRunAdminScan = (id: string) => {
+    adminFetch(`/api/resources/${id}/re-run`, {
+      method: 'POST'
     })
       .then(res => res.json())
       .then(() => fetchAdminData())
@@ -232,7 +277,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const adminTabs = [
     { id: 'status', name: 'Production Status', icon: Activity, color: '#38F8B0' },
     { id: 'users', name: 'Users Control', icon: Users, color: '#8A2BFF' },
-    { id: 'resources', name: 'Resources Review', icon: Database, color: '#FFD36A' },
+    { id: 'resources', name: 'Moderation Queue', icon: Database, color: '#FFD36A' },
     { id: 'campaigns', name: 'Campaigns Center', icon: TrendingUp, color: '#B066FF' },
     { id: 'escrow', name: 'Escrow Locker', icon: Lock, color: '#FF9F1C' },
     { id: 'rewards', name: 'Rewards Engine', icon: Coins, color: '#FFD36A' },
@@ -386,22 +431,45 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                     </tr>
                   ) : (
                     usersList.map((usr) => (
-                      <tr key={usr.id} className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60">
-                        <td className="py-3 px-1 text-white font-bold">{usr.username ? `@${usr.username.replace(/^@/, '')}` : 'Unnamed User'}</td>
-                        <td className="py-3 px-1">{usr.telegram_id || 'N/A'}</td>
+                      <tr key={usr.id} className="border-b border-[#A9A3B8]/5 hover:bg-[#05020D]/60 align-top">
                         <td className="py-3 px-1">
-                          <span className={`px-1.5 py-0.2 rounded uppercase text-[9px] font-bold ${usr.role === 'admin' ? 'bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20' : 'bg-gray-800 text-gray-400'}`}>
-                            {usr.role || 'user'}
-                          </span>
+                          <div className="font-bold text-white">
+                            {usr.username ? `@${usr.username.replace(/^@/, '')}` : 'Unnamed User'}
+                          </div>
+                          {usr.user_risk_factors && usr.user_risk_factors.length > 0 && (
+                            <div className="text-[8px] text-[#FF4D6D] bg-[#FF4D6D]/5 p-1 rounded border border-[#FF4D6D]/15 mt-1 max-w-xs whitespace-normal leading-tight font-sans">
+                              <strong>Flags:</strong> {usr.user_risk_factors.join(' | ')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-1 text-[#A9A3B8]">{usr.telegram_id || 'N/A'}</td>
+                        <td className="py-3 px-1">
+                          <div className="flex flex-col">
+                            <span className={`px-1.5 py-0.2 rounded uppercase text-[8px] font-bold self-start ${usr.role === 'admin' ? 'bg-[#B066FF]/10 text-[#B066FF] border border-[#B066FF]/20' : 'bg-gray-800 text-gray-400'}`}>
+                              {usr.role || 'user'}
+                            </span>
+                            {usr.advertiser_score !== undefined && (
+                              <span className="text-[9px] text-[#FFD36A] mt-0.5">
+                                ★ {usr.advertiser_level || 'Bronze'} ({usr.advertiser_score}/100)
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-1">
-                          <span className={usr.quality_score === 'High-Risk User' || usr.quality_score === 'Blocked User' || usr.status === 'suspended' ? 'text-[#FF4D6D]' : 'text-[#38F8B0]'}>
-                            {usr.quality_score || 'Standard'}
-                          </span>
+                          <div className="flex flex-col text-[11px]">
+                            <span className={usr.quality_score === 'High-Risk User' || usr.quality_score === 'Blocked User' || usr.status === 'suspended' || (usr.user_risk_score && usr.user_risk_score >= 50) ? 'text-[#FF4D6D] font-bold' : 'text-[#38F8B0]'}>
+                              {usr.quality_score || 'Standard'}
+                            </span>
+                            {usr.user_risk_score !== undefined && (
+                              <span className="text-[9px] text-[#A9A3B8] mt-0.5 font-mono">
+                                Risk: <strong className={usr.user_risk_score >= 50 ? 'text-[#FF4D6D]' : 'text-[#38F8B0]'}>{usr.user_risk_score}%</strong>
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-1 text-right space-x-1">
                           {usr.role !== 'admin' ? (
-                            <>
+                            <div className="flex flex-col items-end gap-1">
                               <button
                                 onClick={() => handleUpdateUserStatus(usr.id, 'active', 'Partner')}
                                 className="bg-[#8A2BFF]/15 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded hover:bg-[#8A2BFF]/30 transition-all text-[9px] cursor-pointer"
@@ -414,7 +482,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                               >
                                 Suspend
                               </button>
-                            </>
+                            </div>
                           ) : (
                             <span className="text-[#38F8B0] text-[10px]">Authorized Admin</span>
                           )}
@@ -430,54 +498,361 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
 
         {/* 3. RESOURCES REVIEW TAB */}
         {currentAdminTab === 'resources' && (
-          <div className="space-y-2">
-            <h3 className="font-sans text-[10px] font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
-              <Database className="h-4.5 w-4.5" /> Promotion Resources Awaiting Approvals ({resources.length})
-            </h3>
-
-            {resources.length === 0 ? (
-              <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-5 text-center text-xs text-[#A9A3B8]">
-                No promotion resources awaiting administrative review.
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
+                <Database className="h-4.5 w-4.5" /> AI-Powered Assets Moderation Queue ({resources.length})
+              </h3>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleContinuousScan}
+                  disabled={runningContinuous}
+                  className="px-2.5 py-1 rounded bg-[#FF4D6D]/10 hover:bg-[#FF4D6D]/20 border border-[#FF4D6D]/30 text-[#FF4D6D] text-[10px] font-mono uppercase font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Run Autonomous Continuous Anti-Fraud Scanner"
+                >
+                  <ShieldAlert className={`h-3 w-3 ${runningContinuous ? 'animate-spin' : ''}`} />
+                  {runningContinuous ? 'Scanning Assets...' : 'Continuous Monitor Scan'}
+                </button>
+                <button
+                  type="button"
+                  onClick={fetchAdminData}
+                  className="p-1 text-[#A9A3B8] hover:text-white transition-colors"
+                  title="Refresh Queue"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </button>
               </div>
-            ) : (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
-                {resources.map((res) => (
-                  <div key={res.id} className="p-3 rounded-xl border border-[#A9A3B8]/10 bg-[#0B0618]/40 glass flex flex-col sm:flex-row justify-between sm:items-center gap-3">
-                    <div className="space-y-0.5 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-white truncate">{res.title}</span>
-                        <span className="bg-[#8A2BFF]/15 text-[#B066FF] rounded px-1.5 py-0.2 text-[8px] font-mono font-bold uppercase">
-                          {res.type}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-[#A9A3B8] leading-relaxed line-clamp-2">
-                        {res.description}
-                      </div>
-                      <div className="text-[9px] font-mono text-[#A9A3B8] truncate">
-                        URL: {res.url}
-                      </div>
-                    </div>
+            </div>
 
-                    <div className="flex gap-1.5 shrink-0">
-                      <button
-                        id={`admin-btn-approve-res-${res.id}`}
-                        onClick={() => handleApproveResource(res.id, 'approved')}
-                        className="bg-[#38F8B0]/10 text-[#38F8B0] border border-[#38F8B0]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#38F8B0]/20 cursor-pointer transition-all"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        id={`admin-btn-reject-res-${res.id}`}
-                        onClick={() => handleApproveResource(res.id, 'rejected')}
-                        className="bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/20 rounded px-2.5 py-1.5 text-xs font-bold hover:bg-[#FF4D6D]/20 cursor-pointer transition-all"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
+            {scanMessage && (
+              <div className="p-2.5 rounded bg-[#38F8B0]/5 border border-[#38F8B0]/25 text-[#38F8B0] text-[10px] font-mono">
+                {scanMessage}
               </div>
             )}
+
+            {/* Dynamic Filter Row */}
+            <div className="flex flex-wrap gap-1.5 pb-2 border-b border-[#A9A3B8]/10">
+              {[
+                { id: 'pending_review', label: 'Pending Review', count: resources.filter(r => r.status === 'pending_review').length },
+                { id: 'pending', label: 'Changes Requested', count: resources.filter(r => r.status === 'pending').length },
+                { id: 'approved', label: 'Approved Assets', count: resources.filter(r => r.status === 'approved').length },
+                { id: 'rejected', label: 'Rejected', count: resources.filter(r => r.status === 'rejected').length },
+                { id: 'suspended', label: 'Suspended', count: resources.filter(r => r.status === 'suspended').length },
+                { id: 'all', label: 'All Submissions', count: resources.length },
+              ].map(f => (
+                <button
+                  key={f.id}
+                  onClick={() => setModFilter(f.id)}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-mono font-bold uppercase transition-all cursor-pointer ${
+                    modFilter === f.id
+                      ? 'bg-[#8A2BFF] text-white border border-[#8A2BFF]'
+                      : 'bg-[#0B0618]/60 text-[#A9A3B8] border border-[#A9A3B8]/10 hover:border-[#8A2BFF]/30'
+                  }`}
+                >
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+
+            {/* Filtered Assets List */}
+            {(() => {
+              const filtered = resources.filter(r => {
+                if (modFilter === 'all') return true;
+                return r.status === modFilter;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-6 text-center text-xs text-[#A9A3B8]">
+                    No promotion resources match the "{modFilter.replace('_', ' ').toUpperCase()}" filter.
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                  {filtered.map((res) => {
+                    const trustScore = res.trust_score !== undefined ? res.trust_score : 50;
+                    const riskLevel = res.risk_level || 'Medium Risk';
+                    const isVerified = res.ownership_status === 'verified';
+                    
+                    // Determine trust score bracket colors and descriptions
+                    let scoreColor = 'text-[#38F8B0]';
+                    let barColor = 'bg-[#38F8B0]';
+                    let scoreDesc = 'Excellent (Very High Safety)';
+                    
+                    if (trustScore > 20 && trustScore <= 40) {
+                      scoreColor = 'text-[#a2ff54]';
+                      barColor = 'bg-[#a2ff54]';
+                      scoreDesc = 'Good (Safe asset)';
+                    } else if (trustScore > 40 && trustScore <= 60) {
+                      scoreColor = 'text-[#FFD36A]';
+                      barColor = 'bg-[#FFD36A]';
+                      scoreDesc = 'Medium Risk (Proceed with caution)';
+                    } else if (trustScore > 60 && trustScore <= 80) {
+                      scoreColor = 'text-[#FF9F43]';
+                      barColor = 'bg-[#FF9F43]';
+                      scoreDesc = 'High Risk (Potential security/scam issues)';
+                    } else if (trustScore > 80) {
+                      scoreColor = 'text-[#FF4D6D]';
+                      barColor = 'bg-[#FF4D6D]';
+                      scoreDesc = 'Critical Risk (High vulnerability / direct scam indicators)';
+                    }
+
+                    const inputReason = adminReasons[res.id] || '';
+
+                    return (
+                      <div key={res.id} className="p-4 rounded-xl border border-[#A9A3B8]/10 bg-[#05020D]/80 glass space-y-4">
+                        {/* Header Details */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#A9A3B8]/10">
+                          <div className="flex gap-3 items-center min-w-0">
+                            <img
+                              referrerPolicy="no-referrer"
+                              src={res.image_url}
+                              alt={res.title}
+                              className="h-10 w-10 rounded-lg object-cover bg-neutral-800 border border-[#A9A3B8]/15"
+                            />
+                            <div className="min-w-0">
+                              <h4 className="text-sm font-bold text-white truncate uppercase tracking-tight">{res.title}</h4>
+                              <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[9px] font-mono text-[#A9A3B8]">
+                                <span className="bg-[#8A2BFF]/15 text-[#B066FF] rounded px-1.5 py-0.5 text-[8px] font-bold uppercase">
+                                  {res.type}
+                                </span>
+                                <span>• User ID: {res.owner_user_id}</span>
+                                {res.username && <span>• Username: @{res.username}</span>}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {/* Ownership Shield */}
+                            {isVerified ? (
+                              <span className="inline-flex items-center gap-1 text-[8px] font-mono text-[#38F8B0] bg-[#38F8B0]/10 border border-[#38F8B0]/20 rounded px-1.5 py-0.5">
+                                <ShieldCheck className="h-3 w-3" /> OWNERSHIP VERIFIED
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[8px] font-mono text-[#FFD36A] bg-[#FFD36A]/10 border border-[#FFD36A]/20 rounded px-1.5 py-0.5 animate-pulse">
+                                <AlertTriangle className="h-3 w-3" /> UNVERIFIED OWNER
+                              </span>
+                            )}
+
+                            {/* Status */}
+                            <span className={`text-[9px] font-bold rounded px-2 py-0.5 uppercase tracking-wider border ${
+                              res.status === 'approved' 
+                                ? 'bg-[#38F8B0]/15 text-[#38F8B0] border-[#38F8B0]/30' 
+                                : res.status === 'pending_review'
+                                  ? 'bg-[#8A2BFF]/15 text-[#B066FF] border-[#8A2BFF]/30 animate-pulse'
+                                  : res.status === 'pending' 
+                                    ? 'bg-[#FFD36A]/15 text-[#FFD36A] border-[#FFD36A]/30' 
+                                    : 'bg-[#FF4D6D]/15 text-[#FF4D6D] border-[#FF4D6D]/30'
+                            }`}>
+                              {res.status === 'approved' ? 'Verified by VIRAL' : res.status.replace('_', ' ')}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* AI Co-Pilot Briefing Notification Banner */}
+                        {res.ai_copilot_briefing && (
+                          <div className="rounded-lg bg-[#38F8B0]/5 border border-[#38F8B0]/20 p-3 text-[11px] text-white space-y-1">
+                            <div className="font-mono text-[9px] text-[#38F8B0] uppercase font-bold flex items-center gap-1">
+                              <Zap className="h-3 w-3" /> AI Co-Pilot Decision Briefing
+                            </div>
+                            <p className="leading-relaxed italic">"{res.ai_copilot_briefing}"</p>
+                          </div>
+                        )}
+
+                        {/* Middle Audit Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                          {/* Dual-Score Matrix Card */}
+                          <div className="md:col-span-5 rounded-lg bg-[#0B0618]/50 border border-[#A9A3B8]/10 p-3 flex flex-col justify-between space-y-3">
+                            <div className="text-[9px] font-mono text-[#A9A3B8] uppercase flex justify-between">
+                              <span>Dual-Score Matrix</span>
+                              <span className="bg-[#B066FF]/20 text-[#B066FF] px-1.5 py-0.5 rounded text-[8px] font-bold">
+                                {res.trust_badge_level || 'Verified'}
+                              </span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-2.5">
+                              {/* AI Safety Score */}
+                              <div className="space-y-1">
+                                <span className="text-[8px] font-mono text-[#A9A3B8] uppercase block">AI Trust Score</span>
+                                <div className="flex items-baseline gap-1">
+                                  <span className={`text-xl font-black ${scoreColor}`}>{100 - trustScore}</span>
+                                  <span className="text-[10px] text-[#A9A3B8]">/100</span>
+                                </div>
+                                <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
+                                  <div className={`h-full ${barColor}`} style={{ width: `${Math.max(2, Math.min(100, 100 - trustScore))}%` }}></div>
+                                </div>
+                              </div>
+
+                              {/* Community Reputation Score */}
+                              <div className="space-y-1">
+                                <span className="text-[8px] font-mono text-[#A9A3B8] uppercase block">Community Rep</span>
+                                <div className="flex items-baseline gap-1">
+                                  <span className="text-xl font-black text-[#8A2BFF]">{res.community_reputation_score !== undefined ? res.community_reputation_score : 85}</span>
+                                  <span className="text-[10px] text-[#A9A3B8]">/100</span>
+                                </div>
+                                <div className="w-full h-1 bg-neutral-800 rounded-full overflow-hidden">
+                                  <div className="h-full bg-[#8A2BFF]" style={{ width: `${res.community_reputation_score !== undefined ? res.community_reputation_score : 85}%` }}></div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Combined Rating & Verification Due */}
+                            <div className="border-t border-[#A9A3B8]/5 pt-2 flex items-center justify-between">
+                              <div className="space-y-0.5">
+                                <div className="text-[8px] font-mono text-[#A9A3B8] uppercase">Combined Rating</div>
+                                <div className="text-xs font-bold text-white font-mono">{res.final_trust_rating !== undefined ? res.final_trust_rating : 85}%</div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-[8px] font-mono text-[#A9A3B8] uppercase">Next Re-Scan</div>
+                                <div className="text-[9px] font-mono text-[#FFD36A] font-bold">
+                                  {res.next_verification_due ? new Date(res.next_verification_due).toLocaleDateString() : 'Continuous'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* AI Summary / Recommendation & Explainability */}
+                          <div className="md:col-span-7 rounded-lg bg-[#0B0618]/50 border border-[#A9A3B8]/10 p-3 flex flex-col justify-between text-[11px] space-y-2">
+                            <div>
+                              <div className="text-[9px] font-mono text-[#A9A3B8] uppercase flex justify-between">
+                                <span>Automated Moderation Summary</span>
+                                {res.detected_flags && res.detected_flags.length > 0 && (
+                                  <span className="text-[#FF4D6D] font-bold text-[8px] animate-pulse">
+                                    FLAGS: {res.detected_flags.join(', ')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-white text-[11px] leading-relaxed italic mt-1 font-sans">
+                                "{res.ai_summary || 'No automated scan summary present.'}"
+                              </p>
+
+                              {/* AI Explainability risk factors */}
+                              {res.ai_explainability_points && res.ai_explainability_points.length > 0 && (
+                                <div className="mt-2.5 pt-2 border-t border-[#A9A3B8]/5 space-y-1">
+                                  <div className="text-[8px] font-mono text-[#FF4D6D] uppercase font-bold">AI Risk Factors Explanations:</div>
+                                  <ul className="list-disc pl-3 text-[9px] text-[#A9A3B8] space-y-0.5">
+                                    {res.ai_explainability_points.map((pt: string, pIdx: number) => (
+                                      <li key={pIdx}>{pt}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center justify-between border-t border-[#A9A3B8]/5 pt-2">
+                              <span className="text-[10px] text-[#A9A3B8]">
+                                Rec: <span className="text-white font-medium">{res.ai_recommendation || 'Wait for automated scan.'}</span>
+                              </span>
+                              
+                              <button
+                                type="button"
+                                onClick={() => setExpandedReportId(expandedReportId === res.id ? null : res.id)}
+                                className="text-[10px] font-mono text-[#B066FF] hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                <FileText className="h-3 w-3" />
+                                {expandedReportId === res.id ? 'Collapse Analysis' : 'Expand Full Safety Report'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Collapsible Full Safety Report and Logs */}
+                        {expandedReportId === res.id && (
+                          <div className="rounded-lg bg-[#05020D] border border-[#A9A3B8]/15 p-3 space-y-3">
+                            <div className="text-[10px] font-mono text-[#B066FF] uppercase tracking-wider border-b border-[#A9A3B8]/5 pb-1 flex justify-between">
+                              <span>Full AI Safety Report</span>
+                              <span>Model: Gemini-3.5-Flash</span>
+                            </div>
+                            <div className="text-[10px] text-white font-mono leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto bg-neutral-950 p-2.5 rounded border border-neutral-900">
+                              {res.full_report || 'No detailed safety audit report was logged.'}
+                            </div>
+
+                            <div className="text-[10px] font-mono text-[#38F8B0] uppercase tracking-wider border-b border-[#A9A3B8]/5 pt-1 pb-1">
+                              Technical Crawl & Verification Logs
+                            </div>
+                            <div className="max-h-32 overflow-y-auto space-y-1 font-mono text-[9px] text-[#A9A3B8] leading-tight bg-neutral-950 p-2 rounded border border-neutral-900">
+                              {res.moderation_logs && res.moderation_logs.length > 0 ? (
+                                res.moderation_logs.map((log: string, lIdx: number) => (
+                                  <div key={lIdx} className="py-0.5">
+                                    {log}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-center py-2 text-neutral-600">No crawl verification logs present.</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Admin Action Controls */}
+                        <div className="pt-3 border-t border-[#A9A3B8]/10 flex flex-col md:flex-row gap-3 items-end md:items-center justify-between">
+                          <div className="w-full md:max-w-md space-y-1 shrink-0">
+                            <label className="block text-[8px] font-mono tracking-wider text-[#A9A3B8] uppercase">Administrative Decision Feedback Reason (For changes, reject, or suspend)</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Please update your Telegram description to verify ownership..."
+                              value={inputReason}
+                              onChange={(e) => setAdminReasons(prev => ({ ...prev, [res.id]: e.target.value }))}
+                              className="w-full rounded bg-[#05020D]/60 border border-[#A9A3B8]/10 p-2 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                            />
+                          </div>
+
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleReRunAdminScan(res.id)}
+                              className="px-2.5 py-1.5 rounded bg-neutral-800 text-neutral-300 hover:bg-neutral-700 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer flex items-center gap-1"
+                              title="Re-run Crawler and AI Analysis"
+                            >
+                              <RefreshCw className="h-3 w-3" /> Re-Scan
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleApproveResource(res.id, 'pending', inputReason)}
+                              disabled={!inputReason}
+                              className="px-2.5 py-1.5 rounded bg-[#FFD36A]/10 text-[#FFD36A] border border-[#FFD36A]/20 hover:bg-[#FFD36A]/20 disabled:opacity-40 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+                              title="Require changes from user"
+                            >
+                              Request Changes
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleApproveResource(res.id, 'rejected', inputReason)}
+                              disabled={!inputReason}
+                              className="px-2.5 py-1.5 rounded bg-[#FF4D6D]/10 text-[#FF4D6D] border border-[#FF4D6D]/20 hover:bg-[#FF4D6D]/20 disabled:opacity-40 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Reject
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleApproveResource(res.id, 'suspended', inputReason)}
+                              disabled={!inputReason}
+                              className="px-2.5 py-1.5 rounded bg-[#FF4D6D]/20 text-[#FF4D6D] border border-[#FF4D6D]/30 hover:bg-[#FF4D6D]/30 disabled:opacity-40 text-[10px] font-mono font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Suspend
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleApproveResource(res.id, 'approved')}
+                              className="px-3 py-1.5 rounded bg-gradient-to-r from-[#38F8B0] to-[#00E5FF] text-neutral-950 font-bold hover:opacity-90 text-[10px] font-mono uppercase transition-all cursor-pointer"
+                            >
+                              Approve & Verify
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1066,6 +1441,58 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Phase 2: AI Learning Database Panel */}
+            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4">
+              <div className="flex items-center justify-between border-b border-[#A9A3B8]/10 pb-2">
+                <div className="flex items-center gap-1.5">
+                  <Database className="h-4.5 w-4.5 text-[#8A2BFF]" />
+                  <span className="text-[11px] font-bold text-white uppercase tracking-wider font-sans">AI Learning Fine-Tuning Ledger ({aiLearning.records?.length || 0})</span>
+                </div>
+                <div className="flex gap-2 text-[10px] font-mono">
+                  <span className="text-[#A9A3B8]">Alignment Rate:</span>
+                  <span className="text-[#38F8B0] font-bold">{aiLearning.analytics?.accuracy_rate || 100}%</span>
+                </div>
+              </div>
+
+              {(!aiLearning.records || aiLearning.records.length === 0) ? (
+                <div className="text-center py-8 text-xs text-[#A9A3B8] font-mono">
+                  No learning comparisons logged yet. Make admin decisions on the Moderation Queue to populate the AI database.
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 max-h-[350px] overflow-y-auto pr-1">
+                  {aiLearning.records.map((rec: any) => (
+                    <div key={rec.id} className="p-3 rounded bg-neutral-950/80 border border-neutral-900 space-y-2 font-mono text-[11px]">
+                      <div className="flex justify-between items-center text-[10px]">
+                        <span className="text-white font-bold uppercase truncate max-w-[180px]">{rec.resource_title}</span>
+                        <span className={`px-1.5 py-0.5 rounded font-bold uppercase text-[8px] ${
+                          rec.is_aligned 
+                            ? 'bg-[#FF4D6D]/15 text-[#FF4D6D]' 
+                            : 'bg-[#38F8B0]/15 text-[#38F8B0]'
+                        }`}>
+                          {rec.is_aligned ? 'ADMIN OVERRIDE' : 'ALIGNED WITH AI'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-[10px] bg-neutral-900/50 p-2 rounded border border-neutral-800/60">
+                        <div>
+                          <span className="text-[#A9A3B8] block text-[8px] uppercase">AI Recommendation</span>
+                          <span className="text-white font-semibold">{rec.ai_recommendation} (Score: {rec.ai_trust_score})</span>
+                        </div>
+                        <div>
+                          <span className="text-[#A9A3B8] block text-[8px] uppercase">Admin Decision</span>
+                          <span className="text-[#FFD36A] font-semibold uppercase">{rec.admin_decision}</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[10px] text-[#A9A3B8] leading-tight">
+                        Feedback: <span className="text-white italic">"{rec.admin_reason}"</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}

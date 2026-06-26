@@ -17,6 +17,22 @@ export interface User {
   last_login_at?: string;
   last_checkin_at?: string;
   checkin_streak?: number;
+  
+  // Phase 2 User Risk and Reputation
+  user_risk_score?: number; // 0-100
+  user_risk_factors?: string[];
+  user_risk_level?: 'Low' | 'Medium' | 'High' | 'Critical';
+  user_risk_status?: 'eligible' | 'suspended_rewards';
+
+  // Phase 2 Advertiser Trust Score
+  advertiser_score?: number; // 0-100
+  advertiser_level?: 'Bronze' | 'Silver' | 'Gold' | 'Diamond';
+  advertiser_metrics?: {
+    campaigns_completed: number;
+    campaigns_success_rate: number;
+    escrow_history_count: number;
+    dispute_count: number;
+  };
 }
 
 export interface AuthProvider {
@@ -52,7 +68,40 @@ export interface Resource {
   image_url: string;
   category: string;
   language: string;
-  status: 'pending' | 'approved' | 'rejected' | 'active';
+  status: 'pending' | 'pending_review' | 'approved' | 'rejected' | 'active' | 'suspended';
+  created_at: string;
+  ownership_status?: 'verified' | 'unverified';
+  verification_code?: string;
+  trust_score?: number;
+  risk_level?: 'Excellent' | 'Good' | 'Medium Risk' | 'High Risk' | 'Critical Risk';
+  ai_summary?: string;
+  ai_recommendation?: string;
+  detected_flags?: string[];
+  full_report?: string;
+  moderation_logs?: any[];
+
+  // Phase 2 continuous monitoring & scores
+  community_reputation_score?: number; // 0-100
+  final_trust_rating?: number; // 0-100
+  last_scanned_at?: string;
+  next_verification_due?: string;
+  trust_badge_level?: 'None' | 'Verified' | 'Trusted' | 'Premium Trusted' | 'Enterprise Verified' | 'Elite Partner';
+  ai_copilot_briefing?: string;
+  ai_explainability_points?: string[];
+  complaint_count?: number;
+  campaigns_count?: number;
+  success_rate?: number;
+}
+
+export interface AiLearningRecord {
+  id: string;
+  resource_id: string;
+  resource_title: string;
+  ai_recommendation: string;
+  ai_trust_score: number;
+  admin_decision: 'approved' | 'rejected' | 'suspended' | 'pending';
+  admin_reason?: string;
+  is_aligned: boolean;
   created_at: string;
 }
 

@@ -3,7 +3,8 @@ import path from 'path';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, FeeWallet, 
-  Claim, FraudFlag, AppConfig, AuthProvider, ReferralAuditLog
+  Claim, FraudFlag, AppConfig, AuthProvider, ReferralAuditLog,
+  AiLearningRecord
 } from '../types';
 import { syncDatabaseToFirestore } from './firestoreSync';
 
@@ -22,6 +23,7 @@ export interface DatabaseSchema {
   config: AppConfig;
   auth_providers: AuthProvider[];
   referral_audit_logs?: ReferralAuditLog[];
+  ai_learning_records?: AiLearningRecord[];
 }
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
@@ -100,7 +102,8 @@ export const INITIAL_DB: DatabaseSchema = {
       status: 'active'
     }
   ],
-  referral_audit_logs: []
+  referral_audit_logs: [],
+  ai_learning_records: []
 };
 
 // Shared in-memory cache of the database to act as the performance layer
