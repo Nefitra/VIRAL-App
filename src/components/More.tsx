@@ -14,12 +14,11 @@ interface MoreProps {
   user: User;
   balance: Balance;
   onProfileUpdated: () => void;
-  onOpenAdminCheck?: () => void;
   onOpenAdminSection?: () => void;
   onSignOut?: () => void;
 }
 
-export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck, onOpenAdminSection, onSignOut }: MoreProps) {
+export default function More({ user, balance, onProfileUpdated, onOpenAdminSection, onSignOut }: MoreProps) {
   const tonAddress = useTonAddress();
   const [tonConnectUI] = useTonConnectUI();
 
@@ -785,39 +784,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminCheck
                     </button>
                   </div>
                 )}
-              </div>
-            </div>
-
-            {/* 3.5 Security Verification & Admin Diagnostic Check */}
-            <div className="rounded-xl border border-[#B066FF]/20 bg-[#0B0618]/90 glass p-4 space-y-3.5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
-                  <ShieldCheckIcon className="h-4 w-4 text-[#FFD36A]" /> Diagnostics & Security
-                </h3>
-                <span className="text-[8px] font-mono bg-[#8A2BFF]/10 text-[#B066FF] border border-[#8A2BFF]/20 px-2 py-0.5 rounded uppercase">Protected</span>
-              </div>
-              <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
-                Unify your verification checks: inspect your decentralized TonConnect manifest, run decentralized node queries, and verify if your Telegram ID is pre-authorized for admin role access.
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={onOpenAdminCheck}
-                  className="bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:from-[#B066FF] hover:to-[#8A2BFF] text-white text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#8A2BFF]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#8A2BFF]/30"
-                >
-                  <Terminal className="h-4 w-4 text-[#FFD36A]" /> Security & Admin Diagnostics
-                </button>
-                <button
-                  type="button"
-                  id="btn-goto-tonconnect-check"
-                  onClick={() => {
-                    window.history.pushState(null, '', '/tonconnect-check');
-                    window.dispatchEvent(new Event('popstate'));
-                  }}
-                  className="bg-[#0B0618] hover:bg-[#A9A3B8]/10 text-[#38F8B0] text-xs font-bold py-2.5 px-4 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#38F8B0]/20"
-                >
-                  <ShieldCheckIcon className="h-4 w-4 text-[#38F8B0]" /> TonConnect Diagnostic Page
-                </button>
               </div>
             </div>
 

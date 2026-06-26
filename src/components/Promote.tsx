@@ -217,15 +217,63 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
         )}
       </div>
 
-      {/* Disclaimer / Explainer */}
-      <div className="rounded-xl border border-[#8A2BFF]/30 glass p-4 space-y-2 relative overflow-hidden">
-        <div className="absolute top-0 right-0 h-24 w-24 rounded-full bg-[#8A2BFF]/5 blur-2xl"></div>
-        <h2 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 text-[#B066FF]">
-          <Rocket className="h-4 w-4" /> Promotion Escrow Protection
-        </h2>
-        <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
-          <strong>Add your resource, set a campaign budget and use $VIRAL to reach real users. Campaign funds are protected by escrow and released only for verified actions.</strong>
-        </p>
+      {/* Dynamic Explanation Panel - Clarifying Add Resource vs. Launch Campaign */}
+      <div className="rounded-xl border border-[#8A2BFF]/30 bg-[#0B0618]/90 glass p-5 space-y-4 relative overflow-hidden">
+        <div className="absolute top-0 right-0 h-32 w-32 rounded-full bg-[#8A2BFF]/5 blur-3xl"></div>
+        
+        <div className="flex items-center gap-2 border-b border-[#A9A3B8]/10 pb-2.5">
+          <Sparkles className="h-4 w-4 text-[#FFD36A]" />
+          <h2 className="font-sans text-xs font-extrabold text-white uppercase tracking-wider">
+            Ecosystem Guide: Listing & Campaigns
+          </h2>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Add Resource Column */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#FFD36A]">
+              <PlusCircle className="h-3.5 w-3.5" />
+              <span>1. Add Resource Profile</span>
+            </div>
+            <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
+              Use this option to add your project, bot, Telegram Mini App, website, channel, or digital asset to the $VIRAL ecosystem. This creates a public resource profile inside the <strong className="text-white">DISCOVER</strong> tab and prepares it for future promotion.
+            </p>
+            <div className="p-2.5 bg-[#05020D] border border-[#A9A3B8]/5 rounded-lg text-[10px] text-[#A9A3B8] space-y-1 font-mono">
+              <div className="text-white font-bold text-[9px] uppercase tracking-wider mb-1">Deduction & Listing Rules:</div>
+              <div>• <span className="text-[#38F8B0] font-semibold">100% FREE</span> to list/register.</div>
+              <div>• NO tokens are deducted for profile registration.</div>
+              <div>• Earns <span className="text-[#FFD36A] font-semibold">+50 vVIRAL</span> on your first added asset!</div>
+              <div>• Listing only; does not auto-launch paid advertising.</div>
+            </div>
+          </div>
+
+          {/* Launch Campaign Column */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[#B066FF]">
+              <Rocket className="h-3.5 w-3.5" />
+              <span>2. Launch Ad Campaign</span>
+            </div>
+            <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
+              Use this option when you want to actively promote your registered resource. Use a token budget to target specific actions, generating reach, clicks, visibility, traffic, or engagement from verified users.
+            </p>
+            <div className="p-2.5 bg-[#05020D] border border-[#A9A3B8]/5 rounded-lg text-[10px] text-[#A9A3B8] space-y-1 font-mono">
+              <div className="text-white font-bold text-[9px] uppercase tracking-wider mb-1">Ecosystem Economic Loop:</div>
+              <div>• Deducted immediately upon campaign creation.</div>
+              <div>• Held in secure Smart Escrow, released on proof of work.</div>
+              <div>• <span className="text-[#FFD36A] font-semibold font-bold">At the Alpha stage, campaign costs are calculated in vVIRAL test balance.</span></div>
+              <div>• <span className="text-white font-semibold font-bold">Real $VIRAL campaign payments are not active yet.</span></div>
+              <div>• Minimum budget: Total budget must match target goals.</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-[#A9A3B8]/10 pt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[10px] text-[#38F8B0]">
+            <CheckCircle className="h-3.5 w-3.5" />
+            <span>Tokens are deducted only when a paid campaign is launched or confirmed, not simply when a resource profile is added.</span>
+          </div>
+          <span className="text-[8px] font-mono bg-[#8A2BFF]/10 text-[#B066FF] border border-[#8A2BFF]/25 px-2 py-0.5 rounded uppercase font-semibold">Alpha Test Network</span>
+        </div>
       </div>
 
       {/* Options Header */}

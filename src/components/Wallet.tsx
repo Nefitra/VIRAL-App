@@ -432,21 +432,26 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
           </form>
         </div>
 
-        {/* Post-Bonding Claim Section (Section 5) */}
+        {/* Alpha vVIRAL Reward Preview (Section 5) */}
         <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
           <h3 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
-            <ArrowDownToLine className="h-4 w-4 text-[#38F8B0]" /> Real $VIRAL Claim Drop
+            <ArrowDownToLine className="h-4 w-4 text-[#FFD36A]" /> Alpha vVIRAL Reward Preview
           </h3>
 
           {claimInfo ? (
             <div className="space-y-3 text-xs text-[#A9A3B8]">
-              {/* Bonding curve status */}
-              <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${claimInfo.isBonded ? 'bg-[#38F8B0] animate-pulse' : 'bg-[#FF4D6D]'}`}></span>
-                <span className="text-[10px] font-bold text-white uppercase font-mono">
-                  {claimInfo.isBonded ? 'BLUM Bonding Curve Complete' : 'Bonding in Progress on BLUM'}
+              {/* Alpha Status Indicator */}
+              <div className="flex items-center gap-1.5 bg-[#FFD36A]/5 border border-[#FFD36A]/10 p-2 rounded-lg">
+                <span className="h-2 w-2 rounded-full bg-[#FFD36A] animate-pulse"></span>
+                <span className="text-[10px] font-bold text-[#FFD36A] uppercase font-mono">
+                  Real Claim Not Active Yet (Alpha Stage)
                 </span>
               </div>
+
+              {/* Alpha Disclaimer */}
+              <p className="text-[10px] text-[#A9A3B8] leading-relaxed font-sans bg-[#05020D]/40 p-2.5 rounded border border-[#A9A3B8]/5">
+                <strong>Alpha Disclaimer:</strong> vVIRAL is an internal Alpha reward point. During Alpha, it shows your estimated future $VIRAL allocation at a 1:1 ratio. Real $VIRAL claim is not active yet and will be enabled only after the official launch.
+              </p>
 
               {/* Claims parameters preview */}
               <div className="rounded-lg bg-[#05020D]/60 p-3 border border-[#A9A3B8]/5 space-y-1 font-mono text-[11px]">
@@ -460,11 +465,11 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#A9A3B8]">Conversion Rate:</span>
-                  <strong className="text-[#FFD36A]">1:{claimInfo.conversionRate}</strong>
+                  <strong className="text-[#FFD36A]">1:1</strong>
                 </div>
                 <div className="flex justify-between border-t border-[#A9A3B8]/5 pt-1.5 mt-1">
-                  <span className="text-white font-bold">Claimable Real $VIRAL:</span>
-                  <strong className="text-[#38F8B0] text-xs font-black">{claimInfo.realViralClaimable?.toLocaleString()} $VIRAL</strong>
+                  <span className="text-white font-bold">Estimated Future $VIRAL Allocation:</span>
+                  <strong className="text-[#38F8B0] text-xs font-black">{claimInfo.userValidvViral?.toLocaleString()} $VIRAL</strong>
                 </div>
               </div>
 
@@ -473,7 +478,7 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
                 {claimInfo.hasWallet ? (
                   <div className="flex items-center gap-1 text-[#38F8B0] bg-[#38F8B0]/5 border border-[#38F8B0]/10 p-2 rounded-lg">
                     <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">TON: {claimInfo.wallet_address}</span>
+                    <span className="truncate">TON Connected: {claimInfo.wallet_address}</span>
                   </div>
                 ) : (
                   <div className="text-[#FF4D6D] bg-[#FF4D6D]/5 border border-[#FF4D6D]/10 p-2 rounded-lg">
@@ -485,28 +490,16 @@ export default function Wallet({ user, balance, onBalanceUpdated }: WalletProps)
               {claimError && <div className="text-[11px] text-[#FF4D6D] bg-[#FF4D6D]/10 border border-[#FF4D6D]/20 p-2 rounded">{claimError}</div>}
               {claimSuccess && <div className="text-[11px] text-[#38F8B0] bg-[#38F8B0]/10 border border-[#38F8B0]/20 p-2 rounded">{claimSuccess}</div>}
 
-              {claimInfo.existingClaim ? (
-                <div className="rounded border border-[#A9A3B8]/10 bg-[#05020D]/60 p-2.5 text-center text-[10px] font-mono">
-                  STATUS: <strong className="text-[#FFD36A] uppercase">{claimInfo.existingClaim.status}</strong>
-                  {claimInfo.existingClaim.tx_hash && (
-                    <div className="mt-1 text-[8px] text-[#A9A3B8] truncate">
-                      TX: {claimInfo.existingClaim.tx_hash}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <button
-                  id="wallet-btn-claim"
-                  onClick={handleClaim}
-                  disabled={claiming || !claimInfo.isBonded || !claimInfo.hasWallet || claimInfo.realViralClaimable === 0}
-                  className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#38F8B0] hover:bg-[#38F8B0]/90 text-xs font-bold py-2.5 text-[#05020D] disabled:opacity-30 cursor-pointer transition-all"
-                >
-                  {claiming ? 'Releasing Drop...' : 'Claim Real $VIRAL Drop'}
-                </button>
-              )}
+              <button
+                type="button"
+                disabled={true}
+                className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-[#38F8B0]/5 border border-[#38F8B0]/20 text-[#38F8B0]/50 text-xs font-bold py-2.5 disabled:opacity-50 cursor-not-allowed font-mono uppercase"
+              >
+                {claimInfo.hasWallet ? 'Claim Not Active Yet' : 'Connect Wallet to Prepare for Future Claim'}
+              </button>
             </div>
           ) : (
-            <div className="text-xs text-[#A9A3B8] font-mono">Loading claim calculations...</div>
+            <div className="text-xs text-[#A9A3B8] font-mono">Loading preview parameters...</div>
           )}
         </div>
       </div>

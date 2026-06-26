@@ -15,8 +15,6 @@ import Wallet from './components/Wallet';
 import Referrals from './components/Referrals';
 import More from './components/More';
 import Admin from './components/Admin';
-import AdminCheck from './components/AdminCheck';
-import TonConnectCheck from './components/TonConnectCheck';
 import { useTonAddress, useTonWallet, useTonConnectUI } from '@tonconnect/ui-react';
 import { ToastProvider, useToast } from './components/Toast';
 
@@ -32,9 +30,7 @@ function MainApp() {
   
   const getInitialTab = () => {
     const path = window.location.pathname;
-    if (path === '/admin-check') return 'admin-check';
     if (path === '/admin') return 'admin';
-    if (path === '/tonconnect-check') return 'tonconnect-check';
     return 'home';
   };
   const [activeTab, setActiveTab] = useState<string>(getInitialTab);
@@ -49,12 +45,8 @@ function MainApp() {
   useEffect(() => {
     const handleLocationChange = () => {
       const path = window.location.pathname;
-      if (path === '/admin-check') {
-        setActiveTab('admin-check');
-      } else if (path === '/admin') {
+      if (path === '/admin') {
         setActiveTab('admin');
-      } else if (path === '/tonconnect-check') {
-        setActiveTab('tonconnect-check');
       } else if (path === '/home') {
         setActiveTab('home');
       } else if (path === '/more') {
@@ -415,7 +407,6 @@ function MainApp() {
                 user={currentUser} 
                 balance={currentBalance} 
                 onProfileUpdated={reloadUserAndBalance} 
-                onOpenAdminCheck={() => setActiveTab('admin-check')}
                 onOpenAdminSection={() => setActiveTab('admin')}
               />
             )}
@@ -424,20 +415,6 @@ function MainApp() {
               <Admin 
                 user={currentUser}
                 onBondingToggled={reloadUserAndBalance} 
-              />
-            )}
-
-            {activeTab === 'admin-check' && (
-              <AdminCheck 
-                user={currentUser}
-                onBack={() => setActiveTab('more')}
-              />
-            )}
-
-            {activeTab === 'tonconnect-check' && (
-              <TonConnectCheck 
-                user={currentUser}
-                onBack={() => setActiveTab('more')}
               />
             )}
           </div>

@@ -2198,14 +2198,14 @@ app.get('/api/claims/:userId', (req, res) => {
 
   const claimPool = db.config.claimPoolSize; // 200,000,000 $VIRAL
   
-  // Safe proportional formula: User Real = User Valid vVIRAL / Total Valid vVIRAL * Claim Pool
-  const conversionRate = Number((claimPool / totalValidvViral).toFixed(4));
-  const realViralClaimable = Math.floor(userValidvViral * conversionRate);
+  // Strict 1:1 conversion rate during Alpha
+  const conversionRate = 1;
+  const realViralClaimable = userValidvViral; // 1:1 ratio
 
   const existingClaim = db.claims.find(c => c.user_id === userId);
 
   res.json({
-    isBonded: db.config.isBonded,
+    isBonded: false, // Force disabled for Alpha preview
     userValidvViral,
     totalValidvViral,
     claimPool,
@@ -2219,97 +2219,7 @@ app.get('/api/claims/:userId', (req, res) => {
 
 // 18.1 Submit claim
 app.post('/api/claims', async (req, res) => {
-  const db = readDb();
-  const { userId } = req.body;
-
-  if (!db.config.isBonded) {
-    return res.status(400).json({ error: 'Token bonding on BLUM is still in progress. Claims are not yet active.' });
-  }
-
-  const user = db.users.find(u => u.id === userId);
-  const balance = db.balances.find(b => b.user_id === userId);
-
-  if (!user || !balance) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-
-  if (!user.wallet_address) {
-    return res.status(400).json({ error: 'Connect your TON wallet before claiming.' });
-  }
-
-  const existingClaim = db.claims.find(c => c.user_id === userId);
-  if (existingClaim) {
-    return res.status(400).json({ error: `You have already submitted a claim. Status: ${existingClaim.status}.` });
-  }
-
-  // Perform fraud check before claim (Section 5)
-  const isHighRisk = user.quality_score === 'High-Risk User' || user.quality_score === 'Blocked User';
-  const hasUnresolvedFraud = db.fraud_flags.some(ff => ff.user_id === userId && ff.status === 'pending');
-
-  const claimStatus = (isHighRisk || hasUnresolvedFraud) ? 'pending' : 'completed';
-
-  // Calculate proportional amount
-  const nonAdminBalances = db.balances.filter(b => b.user_id !== 'admin-1');
-  const totalValidvViral = nonAdminBalances.reduce((sum, b) => sum + b.vviral_balance, 0) || 1;
-  const conversionRate = db.config.claimPoolSize / totalValidvViral;
-  const realViralAmount = Math.floor(balance.vviral_balance * conversionRate);
-
-  const newClaim: Claim = {
-    id: generateId('claim'),
-    user_id: userId,
-    valid_vviral: balance.vviral_balance,
-    claim_pool: db.config.claimPoolSize,
-    conversion_rate: conversionRate,
-    real_viral_amount: realViralAmount,
-    wallet_address: user.wallet_address,
-    status: claimStatus,
-    created_at: new Date().toISOString()
-  };
-
-  if (claimStatus === 'completed') {
-    newClaim.paid_at = new Date().toISOString();
-    newClaim.tx_hash = `tg_tx_${Math.random().toString(16).substring(2, 18)}`;
-    
-    // Deduct from vVIRAL balance (transferred on-chain)
-    balance.vviral_balance = 0;
-    // Credit Real $VIRAL balance
-    balance.real_viral_balance = realViralAmount;
-
-    // Deduct claim pool from creator wallet
-    const creatorBalance = db.balances.find(b => b.user_id === 'admin-1');
-    if (creatorBalance) {
-      creatorBalance.real_viral_balance = Math.max(0, creatorBalance.real_viral_balance - realViralAmount);
-    }
-
-    db.ledger_transactions.push({
-      id: generateId('tx'),
-      user_id: userId,
-      amount: realViralAmount,
-      currency: 'real_VIRAL',
-      type: 'claim_paid',
-      status: 'completed',
-      direction: 'credit',
-      created_at: new Date().toISOString(),
-      metadata: `Claimed ${realViralAmount.toLocaleString()} real $VIRAL to connected TON wallet`
-    });
-  } else {
-    db.ledger_transactions.push({
-      id: generateId('tx'),
-      user_id: userId,
-      amount: realViralAmount,
-      currency: 'real_VIRAL',
-      type: 'claim_reserved',
-      status: 'pending',
-      direction: 'credit',
-      created_at: new Date().toISOString(),
-      metadata: `Claim for ${realViralAmount.toLocaleString()} real $VIRAL pending anti-fraud clearance`
-    });
-  }
-
-  db.claims.push(newClaim);
-  await writeDb(db);
-
-  res.json({ success: true, claim: newClaim });
+  return res.status(400).json({ error: 'Real $VIRAL claims are not active during the Alpha stage. Please follow the official channels for launch announcements!' });
 });
 
 // 19. Admin APIs for monitoring lists
