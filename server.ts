@@ -10,7 +10,8 @@ import { readDb, writeDb, DatabaseSchema } from './src/server/db';
 import { initializeDbFromFirestore, isDbHealthy } from './src/server/firestoreSync';
 import { 
   User, Balance, Resource, Campaign, CampaignEscrow, 
-  TaskCompletion, Referral, LedgerTransaction, Claim, FraudFlag, AppConfig 
+  TaskCompletion, Referral, LedgerTransaction, Claim, FraudFlag, AppConfig,
+  BlacklistRecord, UserAppeal, TrustEvent, SecurityReport
 } from './src/types';
 
 const app = express();
@@ -687,6 +688,9 @@ app.post('/api/wallet/verify-connect', async (req, res) => {
     }
   }
 
+  // Phase 3: Recalculate wallet risk and update profile in real-time
+  recalculateWalletRisk(userId, db);
+
   await writeDb(db);
   res.json({ success: true, user, balance });
 });
@@ -721,6 +725,11 @@ app.post('/api/wallet/disconnect', async (req, res) => {
     created_at: new Date().toISOString(),
     metadata: `Disconnected TON Wallet: ${prevWallet ? (prevWallet.substring(0, 6) + '...') : ''}`
   });
+
+  // Phase 3: Update risk state upon wallet disconnect
+  user.wallet_risk_status = 'Low Risk';
+  user.wallet_trust_score = 100;
+  user.wallet_history = ['No TON Wallet connected currently.'];
 
   await writeDb(db);
   res.json({ success: true, user });
@@ -965,6 +974,9 @@ app.post('/api/auth/update-profile', async (req, res) => {
 
   user.last_active_at = new Date().toISOString();
   balance.updated_at = new Date().toISOString();
+
+  // Phase 3: Recalculate wallet risk if wallet was added/changed
+  recalculateWalletRisk(userId, db);
 
   await writeDb(db);
   res.json({ success: true, user, balance, rewardEarned, updates });
@@ -1693,6 +1705,53 @@ YOUR RESPONSE MUST BE IN VALID JSON FORMAT MATCHING THE FOLLOWING SCHEMA:
     freshRes.moderation_logs = resource.moderation_logs;
     
     // If this is a dynamic drop-in-trust situation from continuous scanning, auto lockdown
+    if (!freshDb.trust_events) freshDb.trust_events = [];
+    
+    // Log AI scan complete
+    freshDb.trust_events.push({
+      id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+      resource_id: resourceId,
+      event_type: 'ai_scan_completed',
+      description: `AI continuous security check completed. Trust rating calculated: ${freshRes.final_trust_rating}/100. AI Risk: ${freshRes.risk_level}.`,
+      actor: 'AI Scanner',
+      created_at: new Date().toISOString()
+    });
+
+    if (ownership_status === 'verified' && resource.ownership_status !== 'verified') {
+      freshDb.trust_events.push({
+        id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+        resource_id: resourceId,
+        event_type: 'ownership_verified',
+        description: `Ownership verified successfully via cryptographic verification challenge.`,
+        actor: 'System',
+        created_at: new Date().toISOString()
+      });
+    }
+
+    if (oldTrustScore !== null) {
+      const oldRating = resource.final_trust_rating || 75;
+      const newRating = freshRes.final_trust_rating;
+      if (newRating > oldRating) {
+        freshDb.trust_events.push({
+          id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+          resource_id: resourceId,
+          event_type: 'score_increased',
+          description: `Trust rating improved by ${newRating - oldRating} points. Quality score refreshed.`,
+          actor: 'System',
+          created_at: new Date().toISOString()
+        });
+      } else if (newRating < oldRating) {
+        freshDb.trust_events.push({
+          id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+          resource_id: resourceId,
+          event_type: 'score_decreased',
+          description: `Trust rating declined by ${oldRating - newRating} points due to continuous monitoring signals.`,
+          actor: 'System',
+          created_at: new Date().toISOString()
+        });
+      }
+    }
+
     if (oldTrustScore !== null && (newTrustScore - oldTrustScore) >= 20 && newTrustScore > 40) {
       freshRes.status = 'suspended';
       (freshRes as any).rejection_reason = `Continuous automated monitor detected high vulnerability escalation. Risk score rose from ${oldTrustScore} to ${newTrustScore}. All campaigns paused.`;
@@ -1704,6 +1763,15 @@ YOUR RESPONSE MUST BE IN VALID JSON FORMAT MATCHING THE FOLLOWING SCHEMA:
         }
       });
       
+      freshDb.trust_events.push({
+        id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+        resource_id: resourceId,
+        event_type: 'suspended',
+        description: `Automated Lockdown: Suspended and paused campaigns due to rapid safety degradation (Risk rose +${newTrustScore - oldTrustScore} points).`,
+        actor: 'AI Scanner',
+        created_at: new Date().toISOString()
+      });
+
       logEvent(`[ALERT] Continuous automated monitor detected high vulnerability escalation. Risk score rose from ${oldTrustScore} to ${newTrustScore}. All campaigns paused automatically.`);
     } else {
       // By default if the status was already approved/rejected, we don't force reset it to review unless it is new
@@ -1755,6 +1823,36 @@ app.post('/api/resources/add', async (req, res) => {
     return res.status(404).json({ error: 'User not found.' });
   }
 
+  // Phase 3: Global Blacklist Engine pre-checks
+  const urlCheck = isTargetBlacklisted(db, url, 'Website');
+  if (urlCheck.isBanned) {
+    return res.status(400).json({ error: `Submission Rejected. This web URL matches a blacklisted target: ${urlCheck.reason}` });
+  }
+
+  const domainCheck = isTargetBlacklisted(db, url, 'Domain');
+  if (domainCheck.isBanned) {
+    return res.status(400).json({ error: `Submission Rejected. This domain/host matches a blacklisted target: ${domainCheck.reason}` });
+  }
+
+  if (type === 'channel' || type === 'bot') {
+    const handleCheck = isTargetBlacklisted(db, url, type === 'channel' ? 'Telegram Channel' : 'Telegram Bot');
+    if (handleCheck.isBanned) {
+      return res.status(400).json({ error: `Submission Rejected. This Telegram handle is present on the security blacklist: ${handleCheck.reason}` });
+    }
+  }
+
+  const userCheck = isTargetBlacklisted(db, owner_user_id, 'User');
+  if (userCheck.isBanned) {
+    return res.status(400).json({ error: `Submission Rejected. Your advertiser/user account is blacklisted: ${userCheck.reason}` });
+  }
+
+  if (user.wallet_address) {
+    const walletCheck = isTargetBlacklisted(db, user.wallet_address, 'Wallet Address');
+    if (walletCheck.isBanned) {
+      return res.status(400).json({ error: `Submission Rejected. Your connected TON Wallet address is blacklisted: ${walletCheck.reason}` });
+    }
+  }
+
   // Create verification code for bots or other assets
   const verificationCode = `VIRAL-VERIFY-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
 
@@ -1776,6 +1874,17 @@ app.post('/api/resources/add', async (req, res) => {
     risk_level: 'Medium Risk',
     moderation_logs: []
   };
+
+  // Phase 3: Log resource registration to Trust Timeline
+  if (!db.trust_events) db.trust_events = [];
+  db.trust_events.push({
+    id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+    resource_id: newResource.id,
+    event_type: 'created',
+    description: `Resource submitted for verification and continuous scanning. Status initialized to Pending Review.`,
+    actor: 'System',
+    created_at: new Date().toISOString()
+  });
 
   // Add metadata fields for approval request compliance
   (newResource as any).telegram_id = user.telegram_id || 'unknown';
@@ -1958,6 +2067,27 @@ app.post('/api/resources/:id/approve', adminAuthMiddleware, async (req, res) => 
   };
   db.ai_learning_records.push(learningRecord);
 
+  // Phase 3: Add to Trust Timeline
+  if (!db.trust_events) db.trust_events = [];
+  let tEventType: 'admin_approved' | 'suspended' | 'reinstated' = 'admin_approved';
+  let tEventDesc = `Status updated to ${status} by administrator.`;
+  if (status === 'approved') {
+    tEventType = 'admin_approved';
+    tEventDesc = `Resource approved for advertising by security administrator. Reasons: ${reason || 'Ecosystem standards matched.'}`;
+  } else if (status === 'rejected' || status === 'suspended') {
+    tEventType = 'suspended';
+    tEventDesc = `Resource restricted: ${reason || 'Does not comply with platform guidelines.'}`;
+  }
+  
+  db.trust_events.push({
+    id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+    resource_id: id,
+    event_type: tEventType,
+    description: tEventDesc,
+    actor: 'Administrator',
+    created_at: new Date().toISOString()
+  });
+
   await writeDb(db);
   res.json({ success: true, resource: db.resources[resIndex], learningRecord });
 });
@@ -2018,6 +2148,25 @@ app.post('/api/campaigns', async (req, res) => {
 
   if (!advertiserUser || !advertiserBalance) {
     return res.status(404).json({ error: 'Advertiser profile not found.' });
+  }
+
+  // Phase 3: Check Wallet Risk and Blacklist constraints before launching campaigns
+  if (advertiserUser.wallet_risk_status === 'High Risk') {
+    return res.status(400).json({ 
+      error: `Security Alert: Campaign creation blocked. Your connected TON wallet has been locked with a "High Risk" status (Score: ${advertiserUser.wallet_trust_score || 0}/100) due to security policies.` 
+    });
+  }
+
+  const userCheck = isTargetBlacklisted(db, owner_user_id, 'User');
+  if (userCheck.isBanned) {
+    return res.status(400).json({ error: `Security Alert: Campaign creation blocked. Your advertiser account is blacklisted: ${userCheck.reason}` });
+  }
+
+  if (advertiserUser.wallet_address) {
+    const walletCheck = isTargetBlacklisted(db, advertiserUser.wallet_address, 'Wallet Address');
+    if (walletCheck.isBanned) {
+      return res.status(400).json({ error: `Security Alert: Campaign creation blocked. Your connected TON Wallet is blacklisted: ${walletCheck.reason}` });
+    }
   }
 
   if (advertiserBalance.vviral_balance < budget) {
@@ -3201,6 +3350,706 @@ app.post('/api/admin/continuous-scan', adminAuthMiddleware, async (req, res) => 
     success: true,
     scanned_count: resourcesToScan.length,
     results
+  });
+});
+
+
+// ==========================================
+// PHASE 3 — GLOBAL SECURITY & TRUST NETWORK
+// ==========================================
+
+// 1. Helper: Add Trust Timeline Event (In-place DB modification)
+async function addTrustEvent(db: any, resourceId: string, eventType: string, description: string, actor: string) {
+  if (!db.trust_events) {
+    db.trust_events = [];
+  }
+  const newEvent = {
+    id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+    resource_id: resourceId,
+    event_type: eventType,
+    description,
+    actor,
+    created_at: new Date().toISOString()
+  };
+  db.trust_events.push(newEvent);
+  return newEvent;
+}
+
+// 2. Helper: Check if a target/URL/handle is on the global blacklist
+function isTargetBlacklisted(db: any, target: string, type: string): { isBanned: boolean; reason?: string; record?: any } {
+  const records = db.blacklist_records || [];
+  if (!target) return { isBanned: false };
+  const cleanTarget = target.trim().toLowerCase();
+
+  for (const record of records) {
+    const banTarget = record.target.trim().toLowerCase();
+    
+    // Check if target matches blacklist type
+    const matchesType = type === 'any' || record.type.toLowerCase() === type.toLowerCase();
+    if (!matchesType) continue;
+
+    // Exact match
+    if (cleanTarget === banTarget) {
+      return { isBanned: true, reason: record.reason, record };
+    }
+
+    // Domain sub-matching
+    if (record.type === 'Domain' && cleanTarget.includes(banTarget)) {
+      return { isBanned: true, reason: `Matches blacklisted domain: ${record.reason}`, record };
+    }
+
+    // Website sub-matching
+    if (record.type === 'Website' && cleanTarget.includes(banTarget)) {
+      return { isBanned: true, reason: `Contains blacklisted web asset: ${record.reason}`, record };
+    }
+
+    // Telegram handle matching
+    if ((record.type === 'Telegram Channel' || record.type === 'Telegram Bot' || record.type === 'Telegram Mini App') && 
+        banTarget.replace('@', '') === cleanTarget.replace('@', '')) {
+      return { isBanned: true, reason: record.reason, record };
+    }
+  }
+
+  return { isBanned: false };
+}
+
+// 3. Helper: Wallet Risk Intelligence scoring and triggers
+function recalculateWalletRisk(userId: string, db: any) {
+  const user = db.users.find((u: any) => u.id === userId);
+  if (!user) return;
+
+  let score = 90; // Default reputation
+  const history: string[] = [];
+
+  const registrationAgeDays = Math.floor((Date.now() - new Date(user.created_at).getTime()) / (1000 * 60 * 60 * 24));
+  history.push(`Wallet registration verified on ${new Date(user.created_at).toLocaleDateString()}`);
+  if (registrationAgeDays > 30) {
+    score += 5;
+  }
+
+  // Suspended resources penalty
+  const userSuspensions = db.resources.filter((r: any) => r.owner_user_id === userId && r.status === 'suspended').length;
+  if (userSuspensions > 0) {
+    score -= userSuspensions * 20;
+    history.push(`Alert: ${userSuspensions} linked promotional resources currently suspended for safety violations.`);
+  }
+
+  // Campaign rejections penalty
+  const userRejectedCampaigns = db.campaigns.filter((c: any) => c.owner_user_id === userId && c.status === 'rejected').length;
+  if (userRejectedCampaigns > 0) {
+    score -= userRejectedCampaigns * 10;
+    history.push(`Warning: ${userRejectedCampaigns} campaign validation requests rejected.`);
+  }
+
+  // Multiple resource listings information
+  const resourceCount = db.resources.filter((r: any) => r.owner_user_id === userId).length;
+  if (resourceCount >= 3) {
+    history.push(`Information: Multi-project resource owner (${resourceCount} registered assets).`);
+  }
+
+  // Wallet sharing detection across different account profiles
+  if (user.wallet_address) {
+    const doubleLinkedWallets = db.users.filter((u: any) => u.id !== userId && u.wallet_address === user.wallet_address).length;
+    if (doubleLinkedWallets > 0) {
+      score -= 40;
+      history.push(`CRITICAL: Wallet address shared across ${doubleLinkedWallets} other registered accounts (Sybil/Farming risk).`);
+    }
+  }
+
+  // Community complaint tracking
+  let complaintTotals = 0;
+  db.resources.filter((r: any) => r.owner_user_id === userId).forEach((r: any) => {
+    complaintTotals += r.complaint_count || 0;
+  });
+  if (complaintTotals > 0) {
+    score -= complaintTotals * 10;
+    history.push(`Warning: ${complaintTotals} verified safety reports or complaints logged against associated projects.`);
+  }
+
+  // Enforce score constraints
+  score = Math.max(10, Math.min(100, score));
+  user.wallet_trust_score = score;
+  user.wallet_history = history;
+
+  const previousRiskStatus = user.wallet_risk_status || 'Low Risk';
+  if (score >= 75) {
+    user.wallet_risk_status = 'Low Risk';
+  } else if (score >= 45) {
+    user.wallet_risk_status = 'Medium Risk';
+  } else {
+    user.wallet_risk_status = 'High Risk';
+  }
+
+  // Section 10: Trigger Automated Actions immediately when a wallet enters High Risk status
+  if (user.wallet_risk_status === 'High Risk' && previousRiskStatus !== 'High Risk') {
+    // 1. Pause advertiser's campaigns
+    db.campaigns.forEach((camp: any) => {
+      if (camp.owner_user_id === userId && (camp.status === 'active' || camp.status === 'pending')) {
+        camp.status = 'paused';
+        history.push(`Automatic Defense: Campaign ${camp.id} paused due to High Risk Wallet alert.`);
+      }
+    });
+
+    // 2. Suspend all owned resources and degrade ratings
+    db.resources.forEach((res: any) => {
+      if (res.owner_user_id === userId) {
+        res.status = 'suspended';
+        const rating = res.final_trust_rating || 80;
+        res.final_trust_rating = Math.max(10, rating - 30);
+        history.push(`Automatic Defense: Suspended resource ${res.id} due to owner wallet compromise.`);
+        // Add timeline event
+        if (!db.trust_events) db.trust_events = [];
+        db.trust_events.push({
+          id: `ev-${crypto.randomBytes(4).toString('hex')}`,
+          resource_id: res.id,
+          event_type: 'suspended',
+          description: `Automatically suspended by Sentinel Engine: owner connected TON wallet failed security score checks.`,
+          actor: 'System',
+          created_at: new Date().toISOString()
+        });
+      }
+    });
+
+    // Create a high-priority flag
+    if (!db.fraud_flags) db.fraud_flags = [];
+    db.fraud_flags.push({
+      id: `fld-${crypto.randomBytes(4).toString('hex')}`,
+      user_id: userId,
+      reason: `Automated Lockdown: TON wallet address security reputation deteriorated to ${score}/100. High probability of bad-actor abuse.`,
+      risk_score: 100 - score,
+      status: 'pending',
+      created_at: new Date().toISOString()
+    });
+  }
+}
+
+// 4. API Endpoint: Get the global blacklist
+app.get('/api/admin/blacklist', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  res.json(db.blacklist_records || []);
+});
+
+// 5. API Endpoint: Add a resource/user to the global blacklist
+app.post('/api/admin/blacklist/add', adminAuthMiddleware, async (req, res) => {
+  const db = readDb();
+  const { type, target, reason, evidence, ban_length } = req.body; // ban_length: 'permanent' or number of days
+
+  if (!type || !target || !reason) {
+    return res.status(400).json({ error: 'Blacklist type, target, and reason are required.' });
+  }
+
+  const isAlreadyBanned = (db.blacklist_records || []).some((r: any) => r.type === type && r.target.toLowerCase() === target.toLowerCase());
+  if (isAlreadyBanned) {
+    return res.status(400).json({ error: 'This resource is already blacklisted.' });
+  }
+
+  let expires_at: string | undefined;
+  if (ban_length && ban_length !== 'permanent') {
+    const days = parseInt(ban_length, 10);
+    if (!isNaN(days)) {
+      const exp = new Date();
+      exp.setDate(exp.getDate() + days);
+      expires_at = exp.toISOString();
+    }
+  }
+
+  const decision: 'permanent' | 'temporary' = expires_at ? 'temporary' : 'permanent';
+
+  const newRecord = {
+    id: `blk-${crypto.randomBytes(4).toString('hex')}`,
+    type,
+    target,
+    reason,
+    evidence: evidence || 'Administrative verification review',
+    ai_confidence: 95,
+    admin_decision: decision,
+    banned_by: 'Administrator',
+    created_at: new Date().toISOString(),
+    expires_at
+  };
+
+  if (!db.blacklist_records) db.blacklist_records = [];
+  db.blacklist_records.push(newRecord);
+
+  // If blacklisting a wallet or user, recalculate risk instantly
+  if (type === 'Wallet Address') {
+    const usersWithWallet = db.users.filter((u: any) => u.wallet_address?.toLowerCase() === target.toLowerCase());
+    usersWithWallet.forEach((usr: any) => {
+      usr.wallet_risk_status = 'High Risk';
+      usr.wallet_trust_score = 10;
+      recalculateWalletRisk(usr.id, db);
+    });
+  } else if (type === 'User') {
+    const blacklistedUser = db.users.find((u: any) => u.id === target || u.telegram_id === target);
+    if (blacklistedUser) {
+      blacklistedUser.status = 'blocked';
+      blacklistedUser.quality_score = 'Blocked User';
+    }
+  } else {
+    // If it's a URL or Handle, suspend any resources matching that URL
+    db.resources.forEach((res: any) => {
+      const matchesUrl = res.url.toLowerCase() === target.toLowerCase();
+      const matchesHandle = res.url.toLowerCase().includes(target.toLowerCase()) || res.title.toLowerCase().includes(target.toLowerCase());
+      if (matchesUrl || (type !== 'Website' && type !== 'Domain' && matchesHandle)) {
+        res.status = 'suspended';
+        addTrustEvent(db, res.id, 'suspended', `Instantly suspended: URL or handle added to Global Security Blacklist: ${reason}`, 'Administrator');
+      }
+    });
+  }
+
+  await writeDb(db);
+  res.json({ success: true, record: newRecord });
+});
+
+// 6. API Endpoint: Remove target from global blacklist
+app.post('/api/admin/blacklist/:id/remove', adminAuthMiddleware, async (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+
+  if (!db.blacklist_records) db.blacklist_records = [];
+  const idx = db.blacklist_records.findIndex((r: any) => r.id === id);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Blacklist record not found.' });
+  }
+
+  const removed = db.blacklist_records.splice(idx, 1)[0];
+
+  // If a wallet or user was unbanned, restore their scores
+  if (removed.type === 'Wallet Address') {
+    const usersWithWallet = db.users.filter((u: any) => u.wallet_address?.toLowerCase() === removed.target.toLowerCase());
+    usersWithWallet.forEach((usr: any) => {
+      recalculateWalletRisk(usr.id, db);
+    });
+  }
+
+  await writeDb(db);
+  res.json({ success: true });
+});
+
+// 7. API Endpoint: Get trust timeline events for a resource
+app.get('/api/resources/:id/timeline', (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+  const events = (db.trust_events || []).filter((e: any) => e.resource_id === id);
+  
+  // Sort from newest to oldest
+  events.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  res.json(events);
+});
+
+// 8. API Endpoint: Public Verification Profile for Verified Resources
+app.get('/api/resources/:id/public-verification', (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+
+  const resource = db.resources.find(r => r.id === id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Verification profile not found for this resource.' });
+  }
+
+  const owner = db.users.find(u => u.id === resource.owner_user_id);
+  const events = (db.trust_events || []).filter((e: any) => e.resource_id === id);
+  events.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  // Aggregate metrics
+  const resourceCampaigns = db.campaigns.filter(c => c.resource_id === id);
+  const completedCampaignsCount = resourceCampaigns.filter(c => c.status === 'completed').length;
+  const activeCampaignsCount = resourceCampaigns.filter(c => c.status === 'active').length;
+
+  res.json({
+    id: resource.id,
+    title: resource.title,
+    url: resource.url,
+    description: resource.description,
+    image_url: resource.image_url,
+    category: resource.category,
+    language: resource.language,
+    status: resource.status,
+    ownership_status: resource.ownership_status || 'unverified',
+    created_at: resource.created_at,
+    last_scanned_at: resource.last_scanned_at || resource.created_at,
+    
+    // Safety scores
+    trust_score: resource.trust_score !== undefined ? resource.trust_score : 50,
+    risk_level: resource.risk_level || 'Medium Risk',
+    community_reputation: resource.community_reputation_score !== undefined ? resource.community_reputation_score : 80,
+    final_trust_rating: resource.final_trust_rating !== undefined ? resource.final_trust_rating : 75,
+    trust_badge_level: resource.trust_badge_level || 'Verified',
+    complaint_count: resource.complaint_count || 0,
+
+    // Wallet intelligence
+    owner_wallet_risk: owner ? owner.wallet_risk_status || 'Low Risk' : 'Unknown',
+    owner_wallet_trust: owner ? owner.wallet_trust_score || 90 : 90,
+
+    // Statistics
+    campaign_statistics: {
+      total_created: resourceCampaigns.length,
+      active_now: activeCampaignsCount,
+      successful_completed: completedCampaignsCount,
+      success_rate: resource.success_rate || 100,
+    },
+    
+    // Verified history timeline
+    timeline: events
+  });
+});
+
+// 9. API Endpoint: User submits Appeal for rejected/suspended resources
+app.post('/api/resources/:id/appeal', async (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+  const { explanation, additional_info, owner_user_id } = req.body;
+
+  if (!explanation || !owner_user_id) {
+    return res.status(400).json({ error: 'Please explain the grounds for your appeal.' });
+  }
+
+  const resource = db.resources.find(r => r.id === id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Resource not found.' });
+  }
+
+  if (resource.owner_user_id !== owner_user_id) {
+    return res.status(403).json({ error: 'You are not the owner of this resource.' });
+  }
+
+  if (!db.user_appeals) db.user_appeals = [];
+  const existingPendingAppeal = db.user_appeals.find((a: any) => a.resource_id === id && a.status === 'pending');
+  if (existingPendingAppeal) {
+    return res.status(400).json({ error: 'There is already an appeal pending review for this resource.' });
+  }
+
+  const appeal: UserAppeal = {
+    id: `ap-${crypto.randomBytes(4).toString('hex')}`,
+    resource_id: id,
+    resource_title: resource.title,
+    owner_user_id,
+    explanation,
+    additional_info: additional_info || 'No supplementary documents attached',
+    status: 'pending',
+    created_at: new Date().toISOString()
+  };
+
+  db.user_appeals.push(appeal);
+
+  // Transition resource to pending_review or flag it as appealed
+  resource.status = 'pending_review';
+  (resource as any).is_appealed = true;
+
+  // Log to trust timeline
+  await addTrustEvent(db, id, 're_scan_completed', `User submitted safety appeal: "${explanation.substring(0, 100)}..."`, 'System');
+
+  await writeDb(db);
+  res.json({ success: true, appeal });
+});
+
+// 10. API Endpoint: Get list of user appeals (Admin only)
+app.get('/api/admin/appeals', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  res.json(db.user_appeals || []);
+});
+
+// 11. API Endpoint: Resolve user appeal (Admin only)
+app.post('/api/admin/appeals/:id/resolve', adminAuthMiddleware, async (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+  const { status, admin_notes } = req.body; // status: 'approved' | 'rejected'
+
+  if (status !== 'approved' && status !== 'rejected') {
+    return res.status(400).json({ error: 'Invalid decision. Must be approved or rejected.' });
+  }
+
+  if (!db.user_appeals) db.user_appeals = [];
+  const appealIdx = db.user_appeals.findIndex((a: any) => a.id === id);
+  if (appealIdx === -1) {
+    return res.status(404).json({ error: 'Appeal not found.' });
+  }
+
+  const appeal = db.user_appeals[appealIdx];
+  appeal.status = status;
+  appeal.admin_notes = admin_notes || 'Reviewed by safety team';
+  appeal.reviewed_at = new Date().toISOString();
+
+  const resource = db.resources.find(r => r.id === appeal.resource_id);
+  if (resource) {
+    if (status === 'approved') {
+      resource.status = 'approved';
+      resource.trust_score = 15; // Reset risk to a healthy level after admin override
+      resource.risk_level = 'Excellent';
+      resource.final_trust_rating = 85;
+      
+      // Reinstate any campaigns paused due to suspension
+      db.campaigns.forEach((camp: any) => {
+        if (camp.resource_id === resource.id && camp.status === 'paused') {
+          camp.status = 'active';
+        }
+      });
+
+      await addTrustEvent(db, resource.id, 'reinstated', `Appeal Approved! Resource successfully reinstated by Security team. Notes: ${admin_notes}`, 'Administrator');
+    } else {
+      resource.status = 'rejected';
+      (resource as any).rejection_reason = `Appeal Rejected: ${admin_notes}`;
+      await addTrustEvent(db, resource.id, 'suspended', `Appeal Denied: Resource remains banned in the ecosystem. Notes: ${admin_notes}`, 'Administrator');
+    }
+  }
+
+  await writeDb(db);
+  res.json({ success: true, appeal });
+});
+
+// 12. API Endpoint: Submit Community Report on resources
+app.post('/api/resources/:id/report', async (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+  const { reporter_user_id, reason, details, evidence_link } = req.body;
+
+  if (!reporter_user_id || !reason || !details) {
+    return res.status(400).json({ error: 'Reporter ID, reason, and description are required.' });
+  }
+
+  const resource = db.resources.find(r => r.id === id);
+  if (!resource) {
+    return res.status(404).json({ error: 'Resource to report not found.' });
+  }
+
+  const reporter = db.users.find(u => u.id === reporter_user_id);
+  if (!reporter) {
+    return res.status(404).json({ error: 'Reporter user profile not found.' });
+  }
+
+  const reportId = `rep-${crypto.randomBytes(4).toString('hex')}`;
+
+  const newReport: SecurityReport = {
+    id: reportId,
+    resource_id: id,
+    resource_title: resource.title,
+    reporter_user_id,
+    reason,
+    details,
+    evidence_link,
+    ai_evaluation_status: 'pending',
+    ai_confidence: 0,
+    created_at: new Date().toISOString()
+  };
+
+  if (!db.security_reports) db.security_reports = [];
+  db.security_reports.push(newReport);
+
+  // Section 7 & 8: AI analyzes report and updates reporter reputation & program level
+  let aiReportDecision: 'valid' | 'false_report' = 'valid';
+  let aiConf = 80;
+  
+  try {
+    const aiClient = getGeminiAI();
+    const evaluationPrompt = `You are the $VIRAL Automated Security Operations center.
+Evaluate the following community safety report for a promotional resource:
+RESOURCE UNDER REPORT:
+- Title: ${resource.title}
+- Description: ${resource.description}
+- URL: ${resource.url}
+- Current Safety Rating: ${resource.final_trust_rating || 75}/100
+
+COMMUNITY SAFETY REPORT DETAILS:
+- Reported Reason: ${reason}
+- Description of Danger: ${details}
+- Attached Evidence Links: ${evidence_link || 'None'}
+
+Evaluate objectively. Is this report likely to be VALID and technically grounded, or is it likely a FALSE/SPAM report without substance?
+Your response must be in strictly valid JSON format matching:
+{
+  "status": "valid" or "false_report",
+  "confidence": <number from 0 to 100>,
+  "reasoning": "<1 sentence reasoning>"
+}`;
+
+    const aiRes = await aiClient.models.generateContent({
+      model: "gemini-3.5-flash",
+      contents: evaluationPrompt,
+      config: {
+        responseMimeType: "application/json",
+        temperature: 0.1,
+      }
+    });
+
+    if (aiRes.text) {
+      const parsed = JSON.parse(aiRes.text.trim());
+      aiReportDecision = parsed.status === 'false_report' ? 'false_report' : 'valid';
+      aiConf = parsed.confidence || 85;
+    }
+  } catch (err) {
+    console.error('[AI Report Evaluation Error]', err);
+    // Safe fallback based on keyword scan
+    if (details.toLowerCase().includes('scam') || details.toLowerCase().includes('fake') || details.toLowerCase().includes('phish')) {
+      aiReportDecision = 'valid';
+    } else {
+      aiReportDecision = 'false_report';
+    }
+  }
+
+  newReport.ai_evaluation_status = aiReportDecision;
+  newReport.ai_confidence = aiConf;
+
+  // Track reporter's reputation
+  const currentRep = reporter.reporter_reputation !== undefined ? reporter.reporter_reputation : 50;
+  let newRep = currentRep;
+
+  if (aiReportDecision === 'valid') {
+    newRep = Math.min(100, currentRep + 10);
+    
+    // Increase project's complaint count
+    resource.complaint_count = (resource.complaint_count || 0) + 1;
+    
+    // Log timeline event
+    await addTrustEvent(db, id, 'complaint_received', `Community report received: "${reason}" - evaluated as VALID by AI Core. Details: ${details}`, 'Community Reporter');
+
+    // Section 10: Large complaint spike trigger -> Auto schedule AI re-scan and freeze campaigns if complaints >= 3
+    if (resource.complaint_count >= 3) {
+      resource.status = 'suspended';
+      
+      db.campaigns.forEach((camp: any) => {
+        if (camp.resource_id === resource.id && camp.status === 'active') {
+          camp.status = 'paused';
+        }
+      });
+
+      await addTrustEvent(db, id, 'suspended', `Sentinel Protection: Automated lockdown triggered. Project exceeded critical community complaint threshold. All active promotion campaigns paused.`, 'System');
+      
+      // Auto queue immediate AI re-scan
+      setTimeout(async () => {
+        try {
+          await runResourceModeration(resource.id);
+        } catch (e) {
+          console.error('[Sentinel re-scan fail]', e);
+        }
+      }, 2000);
+    }
+  } else {
+    // False report penalty
+    newRep = Math.max(0, currentRep - 15);
+  }
+
+  reporter.reporter_reputation = newRep;
+
+  // Update Trusted Reporter Levels
+  if (newRep >= 90) {
+    reporter.reporter_level = 'Elite Security Contributor';
+  } else if (newRep >= 75) {
+    reporter.reporter_level = 'Senior Reporter';
+  } else if (newRep >= 50) {
+    reporter.reporter_level = 'Trusted Reporter';
+  } else {
+    reporter.reporter_level = 'Reporter';
+  }
+
+  await writeDb(db);
+  res.json({ success: true, report: newReport, reporter_reputation: newRep, reporter_level: reporter.reporter_level });
+});
+
+// 13. API Endpoint: Get community safety reports (Admin only)
+app.get('/api/admin/reports', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+  res.json(db.security_reports || []);
+});
+
+// 14. API Endpoint: Resolve report (Admin only)
+app.post('/api/admin/reports/:id/resolve', adminAuthMiddleware, async (req, res) => {
+  const db = readDb();
+  const { id } = req.params;
+  const { decision } = req.body; // decision: 'approved' | 'rejected'
+
+  if (!db.security_reports) db.security_reports = [];
+  const repIdx = db.security_reports.findIndex((r: any) => r.id === id);
+  if (repIdx === -1) {
+    return res.status(404).json({ error: 'Safety report not found.' });
+  }
+
+  const report = db.security_reports[repIdx];
+  report.admin_decision = decision === 'approved' ? 'approved' : 'rejected';
+
+  const resource = db.resources.find(r => r.id === report.resource_id);
+  if (resource && decision === 'approved') {
+    resource.status = 'suspended';
+    await addTrustEvent(db, resource.id, 'suspended', `Security report approved by safety desk administrator. Resource suspended immediately.`, 'Administrator');
+  }
+
+  await writeDb(db);
+  res.json({ success: true });
+});
+
+// 15. API Endpoint: Security Center analytics and indicators
+app.get('/api/admin/security/stats', adminAuthMiddleware, (req, res) => {
+  const db = readDb();
+
+  const totalResources = db.resources.length;
+  const verified = db.resources.filter(r => r.status === 'approved' || r.status === 'active').length;
+  const underReview = db.resources.filter(r => r.status === 'pending' || r.status === 'pending_review').length;
+  const suspended = db.resources.filter(r => r.status === 'suspended').length;
+  
+  // High risk projects (Risk score >= 60)
+  const highRisk = db.resources.filter(r => r.trust_score !== undefined && r.trust_score >= 60).length;
+
+  // Blacklist stats
+  const blacklistCount = (db.blacklist_records || []).length;
+
+  // Alerts aggregate
+  const alerts: any[] = [];
+  
+  // Flag continuous drop
+  db.resources.forEach((r: any) => {
+    if (r.trust_score >= 60 && r.status === 'approved') {
+      alerts.push({
+        id: `alt-${crypto.randomBytes(2).toString('hex')}`,
+        type: 'Resource Vulnerability Alert',
+        message: `Approved project "${r.title}" has a deteriorating AI Safety Score (${r.trust_score}/100)`,
+        severity: 'Warning',
+        created_at: r.last_scanned_at || new Date().toISOString()
+      });
+    }
+    if (r.complaint_count && r.complaint_count >= 2) {
+      alerts.push({
+        id: `alt-${crypto.randomBytes(2).toString('hex')}`,
+        type: 'Complaint Spike Warning',
+        message: `Project "${r.title}" accumulated ${r.complaint_count} active community complaints. Review due immediately.`,
+        severity: 'Critical',
+        created_at: new Date().toISOString()
+      });
+    }
+  });
+
+  // Wallet risk alerts
+  const highRiskWallets = db.users.filter((u: any) => u.wallet_risk_status === 'High Risk');
+  highRiskWallets.forEach((usr: any) => {
+    alerts.push({
+      id: `alt-${crypto.randomBytes(2).toString('hex')}`,
+      type: 'Wallet Reputation Lockdown',
+      message: `Account @${usr.username || usr.id} connected wallet has deteriorated to High Risk status (${usr.wallet_trust_score}/100)`,
+      severity: 'Critical',
+      created_at: new Date().toISOString()
+    });
+  });
+
+  // AI Recommendation Accuracy from Learning records
+  const records = db.ai_learning_records || [];
+  const totalCompared = records.length;
+  const aligned = records.filter((r: any) => r.is_aligned).length;
+  const accuracy = totalCompared > 0 ? Math.round((aligned / totalCompared) * 100) : 98;
+
+  res.json({
+    counts: {
+      total_resources: totalResources,
+      verified_resources: verified,
+      under_review: underReview,
+      suspended_resources: suspended,
+      high_risk_resources: highRisk,
+      blacklisted_targets: blacklistCount,
+      wallet_alerts_count: highRiskWallets.length,
+      unresolved_appeals: (db.user_appeals || []).filter((a: any) => a.status === 'pending').length,
+      unresolved_reports: (db.security_reports || []).filter((r: any) => r.ai_evaluation_status === 'pending' || !r.admin_decision).length
+    },
+    alerts: alerts.slice(0, 8),
+    ai_accuracy_rate: accuracy,
+    system_health: highRiskWallets.length + highRisk > 4 ? 'Moderate Vulnerability Load' : 'Optimal',
+    realtime_status: 'Active Continuous Shield'
   });
 });
 

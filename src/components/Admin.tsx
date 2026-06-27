@@ -17,7 +17,30 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
   const [completions, setCompletions] = useState<any[]>([]);
   const [fraudFlags, setFraudFlags] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentAdminTab, setCurrentAdminTab] = useState<'status' | 'users' | 'resources' | 'campaigns' | 'escrow' | 'rewards' | 'referrals' | 'fraud' | 'feewallet' | 'claim' | 'settings' | 'logs'>('status');
+  const [currentAdminTab, setCurrentAdminTab] = useState<'status' | 'security' | 'users' | 'resources' | 'campaigns' | 'escrow' | 'rewards' | 'referrals' | 'fraud' | 'feewallet' | 'claim' | 'settings' | 'logs'>('status');
+  
+  // Phase 3 states for global security and trust panel
+  const [securityStats, setSecurityStats] = useState<any | null>(null);
+  const [blacklist, setBlacklist] = useState<any[]>([]);
+  const [appeals, setAppeals] = useState<any[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  
+  // Sub-tabs for security screen: 'dashboard' | 'blacklist' | 'appeals' | 'reports'
+  const [currentSecuritySubTab, setCurrentSecuritySubTab] = useState<'dashboard' | 'blacklist' | 'appeals' | 'reports'>('dashboard');
+
+  // Blacklist addition states
+  const [blacklistType, setBlacklistType] = useState<string>('Website');
+  const [blacklistTarget, setBlacklistTarget] = useState<string>('');
+  const [blacklistReason, setBlacklistReason] = useState<string>('');
+  const [blacklistEvidence, setBlacklistEvidence] = useState<string>('');
+  const [blacklistBanLength, setBlacklistBanLength] = useState<string>('permanent');
+  const [blacklistingError, setBlacklistingError] = useState<string>('');
+  const [blacklistingSuccess, setBlacklistingSuccess] = useState<boolean>(false);
+
+  // Resolution states
+  const [appealNotes, setAppealNotes] = useState<{[key: string]: string}>({});
+  const [reportNotes, setReportNotes] = useState<{[key: string]: string}>({});
+
   const [modFilter, setModFilter] = useState<string>('pending_review');
   const [adminReasons, setAdminReasons] = useState<{[key: string]: string}>({});
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
@@ -92,9 +115,16 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
       adminFetch('/api/admin/campaigns').then(res => res.json()),
       adminFetch('/api/admin/escrows').then(res => res.json()),
       adminFetch('/api/admin/referrals').then(res => res.json()),
-      adminFetch('/api/admin/claims').then(res => res.json())
+      adminFetch('/api/admin/claims').then(res => res.json()),
+      adminFetch('/api/admin/security/stats').then(res => res.json()),
+      adminFetch('/api/admin/blacklist').then(res => res.json()),
+      adminFetch('/api/admin/appeals').then(res => res.json()),
+      adminFetch('/api/admin/reports').then(res => res.json())
     ])
-      .then(([statsData, resourcesData, completionsData, fraudData, usersData, campaignsData, escrowsData, referralsData, claimsData]) => {
+      .then(([
+        statsData, resourcesData, completionsData, fraudData, usersData, campaignsData, 
+        escrowsData, referralsData, claimsData, secStats, blkList, appList, repList
+      ]) => {
         setStats(statsData);
         setResources(resourcesData || []);
         setCompletions(completionsData);
@@ -104,6 +134,11 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
         setEscrowsList(escrowsData || []);
         setReferralsList(referralsData || []);
         setClaimsList(claimsData || []);
+
+        setSecurityStats(secStats);
+        setBlacklist(blkList || []);
+        setAppeals(appList || []);
+        setReports(repList || []);
         
         setStarterBonusInput(statsData.config?.starterBonus?.toString() || '100');
         setFeePercentInput(statsData.config?.platformFeePercent?.toString() || '10');
@@ -235,6 +270,82 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
       .catch(err => console.error(err));
   };
 
+  // Phase 3 action handlers
+  const handleAddBlacklist = (e: React.FormEvent) => {
+    e.preventDefault();
+    setBlacklistingError('');
+    setBlacklistingSuccess(false);
+    
+    if (!blacklistTarget || !blacklistReason) {
+      setBlacklistingError('Target and Reason are required.');
+      return;
+    }
+
+    adminFetch('/api/admin/blacklist/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: blacklistType,
+        target: blacklistTarget,
+        reason: blacklistReason,
+        evidence: blacklistEvidence,
+        ban_length: blacklistBanLength
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setBlacklistingError(data.error);
+        } else {
+          setBlacklistingSuccess(true);
+          setBlacklistTarget('');
+          setBlacklistReason('');
+          setBlacklistEvidence('');
+          fetchAdminData();
+          setTimeout(() => setBlacklistingSuccess(false), 3000);
+        }
+      })
+      .catch(err => {
+        console.error(err);
+        setBlacklistingError('Network error adding to blacklist.');
+      });
+  };
+
+  const handleRemoveBlacklist = (id: string) => {
+    adminFetch(`/api/admin/blacklist/${id}/remove`, {
+      method: 'POST'
+    })
+      .then(res => res.json())
+      .then(() => fetchAdminData())
+      .catch(err => console.error(err));
+  };
+
+  const handleResolveAppeal = (id: string, status: 'approved' | 'rejected') => {
+    const notes = appealNotes[id] || 'Processed by safety desk';
+    adminFetch(`/api/admin/appeals/${id}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, admin_notes: notes })
+    })
+      .then(res => res.json())
+      .then(() => {
+        setAppealNotes(prev => ({ ...prev, [id]: '' }));
+        fetchAdminData();
+      })
+      .catch(err => console.error(err));
+  };
+
+  const handleResolveReport = (id: string, decision: 'approved' | 'rejected') => {
+    adminFetch(`/api/admin/reports/${id}/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision })
+    })
+      .then(res => res.json())
+      .then(() => fetchAdminData())
+      .catch(err => console.error(err));
+  };
+
   const ADMIN_TELEGRAM_IDS = ['8618331744', '6228196481', '5314622858'];
   const hasAdminAccess = user.role === 'admin' || user.is_admin === true || (user.telegram_id && ADMIN_TELEGRAM_IDS.includes(user.telegram_id.toString()));
   const isTgInitDataPresent = !!(window as any).Telegram?.WebApp?.initData;
@@ -276,6 +387,7 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
 
   const adminTabs = [
     { id: 'status', name: 'Production Status', icon: Activity, color: '#38F8B0' },
+    { id: 'security', name: 'Security Center', icon: ShieldCheck, color: '#38F8B0' },
     { id: 'users', name: 'Users Control', icon: Users, color: '#8A2BFF' },
     { id: 'resources', name: 'Moderation Queue', icon: Database, color: '#FFD36A' },
     { id: 'campaigns', name: 'Campaigns Center', icon: TrendingUp, color: '#B066FF' },
@@ -349,6 +461,572 @@ export default function Admin({ user, onBondingToggled }: AdminProps) {
 
       {/* Dynamic Tab Panel Content */}
       <div className="min-h-[300px]">
+        {/* PHASE 3 SECURITY CENTER TAB */}
+        {currentAdminTab === 'security' && (
+          <div className="space-y-4">
+            {/* Security Sub Navigation Tabs */}
+            <div className="flex border-b border-[#A9A3B8]/10">
+              <button
+                onClick={() => setCurrentSecuritySubTab('dashboard')}
+                className={`py-2.5 px-4 font-sans text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                  currentSecuritySubTab === 'dashboard'
+                    ? 'border-[#38F8B0] text-[#38F8B0]'
+                    : 'border-transparent text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Security Dashboard
+              </button>
+              <button
+                onClick={() => setCurrentSecuritySubTab('blacklist')}
+                className={`py-2.5 px-4 font-sans text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                  currentSecuritySubTab === 'blacklist'
+                    ? 'border-[#38F8B0] text-[#38F8B0]'
+                    : 'border-transparent text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Global Blacklist
+              </button>
+              <button
+                onClick={() => setCurrentSecuritySubTab('appeals')}
+                className={`py-2.5 px-4 font-sans text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer relative ${
+                  currentSecuritySubTab === 'appeals'
+                    ? 'border-[#38F8B0] text-[#38F8B0]'
+                    : 'border-transparent text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Appeals Desk
+                {appeals.filter(a => a.status === 'pending').length > 0 && (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#FF4D6D] animate-pulse"></span>
+                )}
+              </button>
+              <button
+                onClick={() => setCurrentSecuritySubTab('reports')}
+                className={`py-2.5 px-4 font-sans text-xs font-bold uppercase tracking-wider border-b-2 transition-all cursor-pointer relative ${
+                  currentSecuritySubTab === 'reports'
+                    ? 'border-[#38F8B0] text-[#38F8B0]'
+                    : 'border-transparent text-[#A9A3B8] hover:text-white'
+                }`}
+              >
+                Safety Reports Desk
+                {reports.filter(r => r.ai_evaluation_status === 'pending' || !r.admin_decision).length > 0 && (
+                  <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-[#FFD36A] animate-pulse"></span>
+                )}
+              </button>
+            </div>
+
+            {/* A. SECURITY DASHBOARD SUB-TAB */}
+            {currentSecuritySubTab === 'dashboard' && (
+              <div className="space-y-4">
+                {/* Statistics Bento Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+                  <div className="bg-[#0B0618]/80 border border-[#A9A3B8]/10 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Security Shield</span>
+                    <span className="text-sm font-extrabold text-white font-mono flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-[#38F8B0] animate-ping"></span>
+                      {securityStats?.realtime_status || 'Active Continuous'}
+                    </span>
+                    <span className="text-[9px] text-[#A9A3B8] block">Continuous 24h scan</span>
+                  </div>
+
+                  <div className="bg-[#0B0618]/80 border border-[#A9A3B8]/10 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">AI Recommendation Accuracy</span>
+                    <span className="text-sm font-extrabold text-[#38F8B0] font-mono">
+                      {securityStats?.ai_accuracy_rate || '98'}%
+                    </span>
+                    <span className="text-[9px] text-[#A9A3B8] block">Aligned with Admin actions</span>
+                  </div>
+
+                  <div className="bg-[#0B0618]/80 border border-[#A9A3B8]/10 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">High-Risk Assets</span>
+                    <span className="text-sm font-extrabold text-[#FF4D6D] font-mono">
+                      {securityStats?.counts?.high_risk_resources || 0} Assets
+                    </span>
+                    <span className="text-[9px] text-[#A9A3B8] block">Risk Score &gt;= 60/100</span>
+                  </div>
+
+                  <div className="bg-[#0B0618]/80 border border-[#A9A3B8]/10 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">System Health</span>
+                    <span className={`text-xs font-bold uppercase px-2 py-0.5 rounded border inline-block ${
+                      securityStats?.system_health === 'Optimal' 
+                        ? 'bg-[#38F8B0]/10 text-[#38F8B0] border-[#38F8B0]/20'
+                        : 'bg-[#FFD36A]/10 text-[#FFD36A] border-[#FFD36A]/20'
+                    }`}>
+                      {securityStats?.system_health || 'Optimal'}
+                    </span>
+                    <span className="text-[9px] text-[#A9A3B8] block">Sentinel payload index</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Left Column: Security Status Indicators & Manual Continuous Monitor */}
+                  <div className="md:col-span-1 rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
+                    <h4 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+                      <Settings className="h-4 w-4 text-[#38F8B0]" /> Sentinel Shield Control
+                    </h4>
+                    
+                    <p className="text-xs text-[#A9A3B8] leading-relaxed">
+                      $VIRAL Sentinel Shield monitors Telegram handles, domains, and advertiser wallets continuously. Changes trigger automated containment within seconds.
+                    </p>
+
+                    <div className="space-y-1.5 bg-[#05020D]/60 p-3 rounded-lg border border-[#A9A3B8]/5">
+                      <div className="flex justify-between text-[10px] font-mono">
+                        <span className="text-[#A9A3B8]">Blacklisted Targets:</span>
+                        <span className="text-white font-bold">{securityStats?.counts?.blacklisted_targets || 0}</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-mono">
+                        <span className="text-[#A9A3B8]">Pending Appeals:</span>
+                        <span className="text-[#38F8B0] font-bold">{securityStats?.counts?.unresolved_appeals || 0} pending</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-mono">
+                        <span className="text-[#A9A3B8]">Active Wallet Alerts:</span>
+                        <span className="text-[#FF4D6D] font-bold">{securityStats?.counts?.wallet_alerts_count || 0} flagged</span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <button
+                        onClick={handleContinuousScan}
+                        disabled={runningContinuous}
+                        className={`w-full py-2.5 rounded-lg border text-xs font-bold tracking-wider font-sans uppercase flex items-center justify-center gap-2 transition-all cursor-pointer select-none ${
+                          runningContinuous
+                            ? 'bg-gray-800 border-gray-700 text-gray-500'
+                            : 'bg-[#38F8B0]/10 border-[#38F8B0]/30 text-[#38F8B0] hover:bg-[#38F8B0]/20'
+                        }`}
+                      >
+                        <RefreshCw className={`h-4 w-4 ${runningContinuous ? 'animate-spin' : ''}`} />
+                        {runningContinuous ? 'Executing...' : 'Force Continuous Scan'}
+                      </button>
+                      {scanMessage && (
+                        <p className="text-[10px] font-mono text-[#38F8B0] text-center mt-1.5 animate-pulse bg-[#38F8B0]/5 border border-[#38F8B0]/15 p-1.5 rounded">
+                          {scanMessage}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right Column: Active Live Safety Alerts Feed */}
+                  <div className="md:col-span-2 rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
+                    <h4 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+                      <ShieldAlert className="h-4 w-4 text-[#FF4D6D]" /> Active Safety Alerts & Containments
+                    </h4>
+
+                    <div className="space-y-2.5 max-h-[280px] overflow-y-auto pr-1">
+                      {!securityStats?.alerts || securityStats.alerts.length === 0 ? (
+                        <div className="text-center py-12 text-[#A9A3B8] italic text-xs font-mono">
+                          No active threat alerts or containment events recorded in the last 24 hours.
+                        </div>
+                      ) : (
+                        securityStats.alerts.map((alert: any) => (
+                          <div 
+                            key={alert.id} 
+                            className={`p-3 rounded-lg border flex flex-col gap-1.5 text-xs font-mono ${
+                              alert.severity === 'Critical'
+                                ? 'bg-[#FF4D6D]/5 border-[#FF4D6D]/20 text-[#FF4D6D]'
+                                : 'bg-[#FFD36A]/5 border-[#FFD36A]/20 text-[#FFD36A]'
+                            }`}
+                          >
+                            <div className="flex justify-between items-center">
+                              <span className="font-sans font-bold uppercase text-[9px] tracking-wider bg-black/40 px-1.5 py-0.5 rounded">
+                                {alert.type}
+                              </span>
+                              <span className="text-[8px] text-gray-500">
+                                {new Date(alert.created_at).toLocaleTimeString()}
+                              </span>
+                            </div>
+                            <p className="text-white text-[11px] leading-tight font-sans">
+                              {alert.message}
+                            </p>
+                            <span className="text-[8px] text-gray-400 self-end font-mono">
+                              Severity: <strong>{alert.severity}</strong>
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* B. GLOBAL BLACKLIST MANAGMENT SUB-TAB */}
+            {currentSecuritySubTab === 'blacklist' && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {/* Left Column: Blacklist Insertion Form */}
+                <form 
+                  onSubmit={handleAddBlacklist}
+                  className="lg:col-span-1 rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4"
+                >
+                  <h4 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+                    <ShieldAlert className="h-4 w-4 text-[#FF4D6D]" /> Add Banned Target
+                  </h4>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Blacklist Target Type</label>
+                    <select
+                      value={blacklistType}
+                      onChange={(e) => setBlacklistType(e.target.value)}
+                      className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#38F8B0]"
+                    >
+                      <option value="Website">Website URL</option>
+                      <option value="Domain">Domain / Host</option>
+                      <option value="Telegram Channel">Telegram Channel</option>
+                      <option value="Telegram Bot">Telegram Bot</option>
+                      <option value="Telegram Mini App">Telegram Mini App</option>
+                      <option value="Wallet Address">TON Wallet Address</option>
+                      <option value="User">User Account ID</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Target Identifier</label>
+                    <input
+                      type="text"
+                      value={blacklistTarget}
+                      onChange={(e) => setBlacklistTarget(e.target.value)}
+                      placeholder={
+                        blacklistType === 'Wallet Address' 
+                          ? 'EQA2d... 또는 wallet address'
+                          : blacklistType.includes('Telegram')
+                          ? '@channel_handle'
+                          : 'https://dangerous-site.com'
+                      }
+                      className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2.5 text-xs text-white font-mono focus:outline-none focus:border-[#38F8B0]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Reason for Ban</label>
+                    <input
+                      type="text"
+                      value={blacklistReason}
+                      onChange={(e) => setBlacklistReason(e.target.value)}
+                      placeholder="e.g. Malicious scam site / Sybil attacker"
+                      className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#38F8B0]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Documented Evidence</label>
+                    <textarea
+                      value={blacklistEvidence}
+                      onChange={(e) => setBlacklistEvidence(e.target.value)}
+                      placeholder="Log links or investigation notes..."
+                      rows={2}
+                      className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#38F8B0]"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Ban Duration</label>
+                    <select
+                      value={blacklistBanLength}
+                      onChange={(e) => setBlacklistBanLength(e.target.value)}
+                      className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-[#38F8B0]"
+                    >
+                      <option value="permanent">Permanent Lifetime Ban</option>
+                      <option value="7">Temporary Ban (7 Days)</option>
+                      <option value="30">Temporary Ban (30 Days)</option>
+                      <option value="90">Temporary Ban (90 Days)</option>
+                    </select>
+                  </div>
+
+                  {blacklistingError && (
+                    <p className="text-xs font-mono text-[#FF4D6D] bg-[#FF4D6D]/5 border border-[#FF4D6D]/15 p-2 rounded">
+                      {blacklistingError}
+                    </p>
+                  )}
+
+                  {blacklistingSuccess && (
+                    <p className="text-xs font-mono text-[#38F8B0] bg-[#38F8B0]/5 border border-[#38F8B0]/15 p-2 rounded">
+                      Success: Added to central blacklist ledger.
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full bg-[#FF4D6D]/10 hover:bg-[#FF4D6D]/20 border border-[#FF4D6D]/30 py-2.5 rounded-lg text-xs font-bold font-sans uppercase tracking-wider text-[#FF4D6D] cursor-pointer"
+                  >
+                    Commit Blacklist Ban
+                  </button>
+                </form>
+
+                {/* Right Column: Blacklist Database Records Table */}
+                <div className="lg:col-span-2 rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
+                  <h4 className="font-sans text-xs font-bold text-white uppercase tracking-wider flex items-center justify-between border-b border-[#A9A3B8]/10 pb-2">
+                    <span>Central Blacklist Registry ({blacklist.length})</span>
+                    <span className="text-[9px] font-mono text-[#A9A3B8]">Sentinel Engine sync</span>
+                  </h4>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs font-mono text-left text-white border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#A9A3B8]/15 text-[#A9A3B8] uppercase text-[9px]">
+                          <th className="py-2 px-1">Type</th>
+                          <th className="py-2 px-1">Banned Target</th>
+                          <th className="py-2 px-1">Reason / Notes</th>
+                          <th className="py-2 px-1 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {blacklist.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-12 text-center text-[#A9A3B8] italic">
+                              No blacklist records in database. Ecosystem clean.
+                            </td>
+                          </tr>
+                        ) : (
+                          blacklist.map((item: any) => (
+                            <tr key={item.id} className="border-b border-[#A9A3B8]/5 hover:bg-black/30 align-top">
+                              <td className="py-2.5 px-1 text-[10px] font-bold text-[#FF4D6D]">
+                                {item.type}
+                              </td>
+                              <td className="py-2.5 px-1 text-[11px] font-semibold break-all text-white">
+                                {item.target}
+                                {item.expires_at && (
+                                  <div className="text-[8px] text-[#FFD36A] mt-0.5">
+                                    Exp: {new Date(item.expires_at).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-1 text-[11px] text-[#A9A3B8] font-sans">
+                                <div>{item.reason}</div>
+                                <div className="text-[8px] text-gray-500 font-mono mt-0.5 break-all">
+                                  Evidence: {item.evidence}
+                                </div>
+                              </td>
+                              <td className="py-2.5 px-1 text-right">
+                                <button
+                                  onClick={() => handleRemoveBlacklist(item.id)}
+                                  className="px-2 py-1 bg-gray-800 hover:bg-gray-700 text-[10px] rounded text-gray-400 hover:text-white cursor-pointer select-none border border-gray-700 font-sans"
+                                >
+                                  Unban
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* C. APPEALS DESK SUB-TAB */}
+            {currentSecuritySubTab === 'appeals' && (
+              <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-5 space-y-4">
+                <h3 className="font-sans text-xs font-bold text-[#38F8B0] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+                  <Coins className="h-4.5 w-4.5" /> Advertiser Appeals Review desk
+                </h3>
+                
+                <p className="text-xs text-[#A9A3B8]">
+                  Users and advertisers can contest automated safety re-scans or administrative bans here. Read their explanation, audit their security parameters, and make decisions to reinstate or confirm the ban.
+                </p>
+
+                <div className="space-y-4">
+                  {appeals.length === 0 ? (
+                    <div className="text-center py-12 text-[#A9A3B8] italic text-xs font-mono bg-black/20 rounded-lg">
+                      No active appeal claims filed in the ecosystem.
+                    </div>
+                  ) : (
+                    appeals.map((item: any) => (
+                      <div 
+                        key={item.id} 
+                        className={`p-4 rounded-xl border flex flex-col gap-3 text-xs ${
+                          item.status === 'pending'
+                            ? 'bg-[#05020D]/80 border-[#38F8B0]/20'
+                            : item.status === 'approved'
+                            ? 'bg-green-900/10 border-green-800/30'
+                            : 'bg-red-900/10 border-red-800/30'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start flex-wrap gap-2 pb-2 border-b border-white/5">
+                          <div>
+                            <span className="font-sans text-[11px] font-bold text-white block">
+                              Project: {item.resource_title} (ID: {item.resource_id})
+                            </span>
+                            <span className="text-[9px] font-mono text-gray-500">
+                              Appealed on {new Date(item.created_at).toLocaleString()} | Contested by User: {item.owner_user_id}
+                            </span>
+                          </div>
+                          <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase ${
+                            item.status === 'pending'
+                              ? 'bg-[#FFD36A]/10 text-[#FFD36A] border border-[#FFD36A]/20'
+                              : item.status === 'approved'
+                              ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                          }`}>
+                            {item.status}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Advertiser's Case Arguments</span>
+                            <p className="text-white bg-black/40 p-3 rounded border border-white/5 leading-relaxed text-[11px] font-sans italic whitespace-normal">
+                              "{item.explanation}"
+                            </p>
+                            <div className="text-[9px] font-mono text-gray-500">
+                              Additional Attached Info: {item.additional_info}
+                            </div>
+                          </div>
+
+                          <div className="space-y-2.5">
+                            <span className="text-[10px] font-mono text-[#A9A3B8] uppercase block">Security Desk Decision</span>
+                            
+                            {item.status === 'pending' ? (
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  placeholder="Provide professional administrative findings notes..."
+                                  value={appealNotes[item.id] || ''}
+                                  onChange={(e) => setAppealNotes(prev => ({ ...prev, [item.id]: e.target.value }))}
+                                  className="w-full bg-[#05020D] border border-[#A9A3B8]/20 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-[#38F8B0]"
+                                />
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleResolveAppeal(item.id, 'approved')}
+                                    className="flex-1 bg-green-500/10 hover:bg-green-500/20 text-green-400 border border-green-500/20 py-1.5 rounded text-[11px] font-bold cursor-pointer"
+                                  >
+                                    Accept Appeal & Reinstate
+                                  </button>
+                                  <button
+                                    onClick={() => handleResolveAppeal(item.id, 'rejected')}
+                                    className="flex-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 py-1.5 rounded text-[11px] font-bold cursor-pointer"
+                                  >
+                                    Deny & Uphold Ban
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="p-2.5 bg-black/30 rounded border border-white/5 space-y-1">
+                                <span className="text-[9px] font-mono text-gray-400 uppercase block">Reviewer Notes:</span>
+                                <p className="text-white text-[11px] leading-relaxed font-sans">
+                                  {item.admin_notes}
+                                </p>
+                                {item.reviewed_at && (
+                                  <span className="text-[8px] text-gray-500 block font-mono text-right">
+                                    Resolved on {new Date(item.reviewed_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* D. SAFETY REPORTS DESK SUB-TAB */}
+            {currentSecuritySubTab === 'reports' && (
+              <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-5 space-y-4">
+                <h3 className="font-sans text-xs font-bold text-[#FF4D6D] uppercase tracking-wider flex items-center gap-1.5 border-b border-[#A9A3B8]/10 pb-2">
+                  <ShieldAlert className="h-4.5 w-4.5 text-[#FF4D6D]" /> Community Safety reports & AI Sentinel Desk
+                </h3>
+
+                <p className="text-xs text-[#A9A3B8]">
+                  Community members report suspicious links. The Sentinel Engine runs real-time content scoring on reports. Valid alerts automatically restrict resources. Admin review handles definitive overrides.
+                </p>
+
+                <div className="space-y-4">
+                  {reports.length === 0 ? (
+                    <div className="text-center py-12 text-[#A9A3B8] italic text-xs font-mono bg-black/20 rounded-lg">
+                      No safety reports filed in the ecosystem.
+                    </div>
+                  ) : (
+                    reports.map((item: any) => (
+                      <div 
+                        key={item.id} 
+                        className={`p-4 rounded-xl border flex flex-col gap-3 text-xs ${
+                          item.admin_decision
+                            ? 'bg-gray-900/20 border-gray-800/20'
+                            : item.ai_evaluation_status === 'valid'
+                            ? 'bg-[#FF4D6D]/5 border-[#FF4D6D]/20'
+                            : 'bg-[#FFD36A]/5 border-[#FFD36A]/20'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start flex-wrap gap-2 pb-2 border-b border-white/5">
+                          <div>
+                            <span className="font-sans text-[11px] font-bold text-white block">
+                              Target Resource: {item.resource_title} (ID: {item.resource_id})
+                            </span>
+                            <span className="text-[9px] font-mono text-gray-500">
+                              Filed on {new Date(item.created_at).toLocaleString()} | Reporter Account ID: {item.reporter_user_id}
+                            </span>
+                          </div>
+                          <div className="flex gap-1.5">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase ${
+                              item.ai_evaluation_status === 'valid'
+                                ? 'bg-red-500/10 text-red-400 border border-red-500/20'
+                                : 'bg-gray-800 text-gray-400'
+                            }`}>
+                              AI Status: {item.ai_evaluation_status} ({item.ai_confidence || 80}% Conf)
+                            </span>
+                            {item.admin_decision && (
+                              <span className="px-2 py-0.5 rounded text-[8px] font-mono font-bold uppercase bg-green-500/10 text-green-400 border border-green-500/20">
+                                Admin Approved: {item.admin_decision}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-1.5">
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] font-mono text-[#A9A3B8] uppercase">Report Reason:</span>
+                              <span className="text-[#FF4D6D] font-bold text-[10px] uppercase font-mono">{item.reason}</span>
+                            </div>
+                            <p className="text-white bg-black/40 p-3 rounded border border-white/5 leading-relaxed text-[11px] font-sans italic">
+                              "{item.details}"
+                            </p>
+                            {item.evidence_link && (
+                              <a 
+                                href={item.evidence_link} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="text-[9px] text-[#38F8B0] underline block truncate"
+                              >
+                                View Evidence Document Link: {item.evidence_link}
+                              </a>
+                            )}
+                          </div>
+
+                          <div className="flex flex-col justify-center space-y-2">
+                            <span className="text-[10px] font-mono text-[#A9A3B8] uppercase">Confirm Action</span>
+                            {!item.admin_decision ? (
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => handleResolveReport(item.id, 'approved')}
+                                  className="flex-1 bg-[#FF4D6D]/10 hover:bg-[#FF4D6D]/20 text-[#FF4D6D] border border-[#FF4D6D]/30 py-1.5 rounded text-[11px] font-bold cursor-pointer"
+                                >
+                                  Approve Safety Report & Suspend
+                                </button>
+                                <button
+                                  onClick={() => handleResolveReport(item.id, 'rejected')}
+                                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 py-1.5 rounded text-[11px] font-bold cursor-pointer"
+                                >
+                                  Dismiss / Reject Report
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="text-[10px] font-mono text-gray-500 italic">
+                                This report has been definitively resolved by the security administrator.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* 1. PRODUCTION STATUS TAB */}
         {currentAdminTab === 'status' && (
           <div className="space-y-4">

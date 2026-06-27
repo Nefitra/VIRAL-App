@@ -4,7 +4,7 @@ import {
   User, Balance, Resource, Campaign, CampaignEscrow, 
   TaskCompletion, Referral, LedgerTransaction, FeeWallet, 
   Claim, FraudFlag, AppConfig, AuthProvider, ReferralAuditLog,
-  AiLearningRecord
+  AiLearningRecord, BlacklistRecord, UserAppeal, TrustEvent, SecurityReport
 } from '../types';
 import { syncDatabaseToFirestore } from './firestoreSync';
 
@@ -24,6 +24,10 @@ export interface DatabaseSchema {
   auth_providers: AuthProvider[];
   referral_audit_logs?: ReferralAuditLog[];
   ai_learning_records?: AiLearningRecord[];
+  blacklist_records?: BlacklistRecord[];
+  user_appeals?: UserAppeal[];
+  trust_events?: TrustEvent[];
+  security_reports?: SecurityReport[];
 }
 
 const DB_PATH = path.join(process.cwd(), 'data-db.json');
@@ -103,7 +107,11 @@ export const INITIAL_DB: DatabaseSchema = {
     }
   ],
   referral_audit_logs: [],
-  ai_learning_records: []
+  ai_learning_records: [],
+  blacklist_records: [],
+  user_appeals: [],
+  trust_events: [],
+  security_reports: []
 };
 
 // Shared in-memory cache of the database to act as the performance layer

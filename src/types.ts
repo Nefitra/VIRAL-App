@@ -33,6 +33,13 @@ export interface User {
     escrow_history_count: number;
     dispute_count: number;
   };
+
+  // Phase 3 Wallet Risk & Reporter Program
+  wallet_trust_score?: number; // 0-100
+  wallet_risk_status?: 'Low Risk' | 'Medium Risk' | 'High Risk';
+  wallet_history?: string[];
+  reporter_reputation?: number; // 0-100
+  reporter_level?: 'Reporter' | 'Trusted Reporter' | 'Senior Reporter' | 'Elite Security Contributor';
 }
 
 export interface AuthProvider {
@@ -229,4 +236,56 @@ export interface ReferralAuditLog {
   details?: string;
   created_at: string;
 }
+
+// Phase 3 Global Security & Trust Network Interfaces
+
+export interface BlacklistRecord {
+  id: string;
+  type: 'Telegram Channel' | 'Telegram Bot' | 'Telegram Mini App' | 'Website' | 'Domain' | 'Wallet Address' | 'User' | 'Advertiser';
+  target: string; // The channel ID, bot name, URL, domain, wallet, or user ID
+  reason: string;
+  evidence: string;
+  ai_confidence: number; // 0-100
+  admin_decision: 'permanent' | 'temporary' | 'manual' | 'ai_auto';
+  banned_by: string; // 'AI System' or admin name
+  created_at: string;
+  expires_at?: string; // Optional for temporary bans
+}
+
+export interface UserAppeal {
+  id: string;
+  resource_id: string;
+  resource_title: string;
+  owner_user_id: string;
+  explanation: string;
+  additional_info: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_notes?: string;
+  created_at: string;
+  reviewed_at?: string;
+}
+
+export interface TrustEvent {
+  id: string;
+  resource_id: string;
+  event_type: 'created' | 'ownership_verified' | 'ai_scan_completed' | 'admin_approved' | 'campaign_launched' | 'rating_updated' | 'score_increased' | 'score_decreased' | 'complaint_received' | 'complaint_resolved' | 're_scan_completed' | 'suspended' | 'reinstated';
+  description: string;
+  actor: 'AI Scanner' | 'Administrator' | 'Community Reporter' | 'System';
+  created_at: string;
+}
+
+export interface SecurityReport {
+  id: string;
+  resource_id: string;
+  resource_title: string;
+  reporter_user_id: string;
+  reason: 'Scam' | 'Fake Project' | 'Spam' | 'Malicious Links' | 'Fake Rewards' | 'Copyright Violation' | 'Other';
+  details: string;
+  evidence_link?: string;
+  ai_evaluation_status: 'pending' | 'valid' | 'false_report';
+  ai_confidence: number;
+  admin_decision?: 'approved' | 'rejected';
+  created_at: string;
+}
+
 
