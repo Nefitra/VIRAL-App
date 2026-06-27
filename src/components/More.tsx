@@ -5,7 +5,7 @@ import {
   HelpCircle, ShieldAlert, BadgeCheck, Mail, Wallet, UserCheck, MessageSquare, BookOpen, Trophy, Info, Sparkles,
   Palette, Coins, Lock, ShieldCheck as ShieldCheckIcon, Share2, Percent, Settings, Zap, FileText, Database,
   CheckSquare, Square, CheckCircle2, AlertCircle, Plus, Minus, Search, ChevronDown, ChevronUp, ArrowRight, RefreshCw,
-  Terminal, LogOut
+  Terminal, LogOut, Flame, TrendingUp, Cpu
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import FAQ from './FAQ';
@@ -25,6 +25,31 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
   const [realTonBalance, setRealTonBalance] = useState<number | null>(null);
   const [realGramBalance, setRealGramBalance] = useState<number | null>(null);
   const [loadingRealBalances, setLoadingRealBalances] = useState(false);
+
+  // Economy dashboard statistics state
+  const [economyStats, setEconomyStats] = useState<any>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+
+  // Marketplace listings state
+  const [marketplaceListings, setMarketplaceListings] = useState<any[]>([]);
+  const [loadingMarketplace, setLoadingMarketplace] = useState(false);
+  const [marketFilter, setMarketFilter] = useState<string>('all');
+  const [marketSearch, setMarketSearch] = useState<string>('');
+
+  // Staking input states
+  const [stakeAmount, setStakeAmount] = useState<string>('');
+  const [stakingLoading, setStakingLoading] = useState(false);
+  const [stakingError, setStakingError] = useState('');
+  const [stakingSuccess, setStakingSuccess] = useState('');
+
+  // AI Financial Advisor state
+  const [aiAdvice, setAiAdvice] = useState<string[]>([]);
+  const [loadingAdvisor, setLoadingAdvisor] = useState(false);
+
+  // Own resource listing states
+  const [ownResources, setOwnResources] = useState<any[]>([]);
+  const [listingPriceRange, setListingPriceRange] = useState<string>('500 - 2000 vVIRAL');
+  const [submittingListing, setSubmittingListing] = useState(false);
 
   const fetchRealBalances = (address: string) => {
     if (!address) return;
@@ -48,6 +73,48 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
       .finally(() => setLoadingRealBalances(false));
   };
 
+  const fetchEconomyStats = () => {
+    setLoadingStats(true);
+    fetch('/api/economy/dashboard-stats')
+      .then(res => res.json())
+      .then(data => {
+        setEconomyStats(data);
+      })
+      .catch(err => console.error('Error fetching economy stats:', err))
+      .finally(() => setLoadingStats(false));
+  };
+
+  const fetchMarketplace = () => {
+    setLoadingMarketplace(true);
+    fetch('/api/economy/marketplace')
+      .then(res => res.json())
+      .then(data => {
+        setMarketplaceListings(data);
+        // Extract own resources
+        const own = data.filter((r: any) => r.owner_user_id === user.id);
+        setOwnResources(own);
+      })
+      .catch(err => console.error('Error fetching marketplace:', err))
+      .finally(() => setLoadingMarketplace(false));
+  };
+
+  const fetchAiAdvice = () => {
+    setLoadingAdvisor(true);
+    fetch('/api/economy/advisor', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.advice) {
+          setAiAdvice(data.advice);
+        }
+      })
+      .catch(err => console.error('Error calling financial advisor:', err))
+      .finally(() => setLoadingAdvisor(false));
+  };
+
   useEffect(() => {
     const activeAddress = tonAddress || user.wallet_address;
     if (activeAddress) {
@@ -58,8 +125,18 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
     }
   }, [tonAddress, user.wallet_address]);
 
-  // Navigation sub-tab
-  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'faq'>('profile');
+  // Handle auto loading when tabs change
+  const [activeSubTab, setActiveSubTab] = useState<'profile' | 'staking' | 'marketplace' | 'economy' | 'faq'>('profile');
+
+  useEffect(() => {
+    if (activeSubTab === 'economy') {
+      fetchEconomyStats();
+    } else if (activeSubTab === 'marketplace') {
+      fetchMarketplace();
+    } else if (activeSubTab === 'staking') {
+      fetchAiAdvice();
+    }
+  }, [activeSubTab]);
 
   // Profile update form states
   const [emailInput, setEmailInput] = useState(user.email || '');
@@ -83,11 +160,9 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
       .catch(err => console.error('Error fetching auth providers:', err));
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     fetchProviders();
   }, [user.id]);
-
-  // New FAQ component handles its own search, category, and accordion state internally.
 
   const handleUpdateProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,80 +199,102 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
       });
   };
 
-  const vp = user.viral_power || 0;
-  
-  // Calculate current tier and next tier progress
-  const currentTier = user.quality_score || 'New User';
-  let nextTier = 'Verified User';
-  let progressMin = 0;
-  let progressMax = 25;
-  let tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
-  
-  if (currentTier === 'Partner') {
-    nextTier = 'Max Level';
-    progressMin = 250;
-    progressMax = 250;
-    tierColor = 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5';
-  } else if (currentTier === 'Trusted User') {
-    nextTier = 'Partner';
-    progressMin = 100;
-    progressMax = 250;
-    tierColor = 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5';
-  } else if (currentTier === 'Active User') {
-    nextTier = 'Trusted User';
-    progressMin = 50;
-    progressMax = 100;
-    tierColor = 'text-[#FFD36A] border-[#FFD36A]/20 bg-[#FFD36A]/5';
-  } else if (currentTier === 'Verified User') {
-    nextTier = 'Active User';
-    progressMin = 25;
-    progressMax = 50;
-    tierColor = 'text-[#B066FF] border-[#B066FF]/20 bg-[#B066FF]/5';
-  } else if (currentTier === 'High-Risk User') {
-    nextTier = 'New User (Unflag)';
-    progressMin = 0;
-    progressMax = 25;
-    tierColor = 'text-[#FF4D6D] border-[#FF4D6D]/20 bg-[#FF4D6D]/5';
-  } else if (currentTier === 'Blocked User') {
-    nextTier = 'None';
-    progressMin = 0;
-    progressMax = 1;
-    tierColor = 'text-[#FF4D6D] border-[#FF4D6D]/20 bg-[#FF4D6D]/5';
-  } else {
-    nextTier = 'Verified User';
-    progressMin = 0;
-    progressMax = 25;
-    tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
-  }
-
-  const percent = progressMax === progressMin ? 100 : Math.min(100, Math.max(0, ((vp - progressMin) / (progressMax - progressMin)) * 100));
-
-  // Render Section Icons dynamically
-  const renderRoadmapIcon = (name: string) => {
-    switch (name) {
-      case 'Info': return <Info className="h-4 w-4 text-[#B066FF]" />;
-      case 'Palette': return <Palette className="h-4 w-4 text-[#8A2BFF]" />;
-      case 'Coins': return <Coins className="h-4 w-4 text-[#FFD36A]" />;
-      case 'Wallet': return <Wallet className="h-4 w-4 text-[#38F8B0]" />;
-      case 'UserCheck': return <UserCheck className="h-4 w-4 text-[#FF4D6D]" />;
-      case 'Lock': return <Lock className="h-4 w-4 text-amber-400" />;
-      case 'ShieldCheck': return <ShieldCheckIcon className="h-4 w-4 text-[#38F8B0]" />;
-      case 'Share2': return <Share2 className="h-4 w-4 text-[#B066FF]" />;
-      case 'Percent': return <Percent className="h-4 w-4 text-rose-400" />;
-      case 'Settings': return <Settings className="h-4 w-4 text-[#A9A3B8]" />;
-      case 'Zap': return <Zap className="h-4 w-4 text-yellow-400" />;
-      case 'FileText': return <FileText className="h-4 w-4 text-blue-400" />;
-      case 'Database': return <Database className="h-4 w-4 text-indigo-400" />;
-      case 'CheckSquare': return <CheckSquare className="h-4 w-4 text-[#38F8B0]" />;
-      default: return <Info className="h-4 w-4 text-gray-400" />;
+  // Staking handler
+  const handleStakingAction = (action: 'stake' | 'unstake') => {
+    setStakingError('');
+    setStakingSuccess('');
+    const amt = parseFloat(stakeAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setStakingError('Please enter a valid amount to stake/unstake.');
+      return;
     }
+
+    setStakingLoading(true);
+    fetch('/api/economy/stake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: user.id,
+        action,
+        amount: amt
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.error) {
+          setStakingError(data.error);
+        } else {
+          setStakingSuccess(`Success! Successfully completed ${action} transaction for ${amt} vVIRAL.`);
+          setStakeAmount('');
+          onProfileUpdated();
+          fetchAiAdvice();
+        }
+      })
+      .catch(() => setStakingError('Network error connecting to staking engine.'))
+      .finally(() => setStakingLoading(false));
   };
 
+  // Own Resource listing management
+  const handleMarketplaceListToggle = (resourceId: string, currentListed: boolean) => {
+    setSubmittingListing(true);
+    fetch('/api/economy/marketplace/list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        resourceId,
+        priceRange: listingPriceRange,
+        listed: !currentListed
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          fetchMarketplace();
+        }
+      })
+      .catch(err => console.error('Error toggling marketplace list:', err))
+      .finally(() => setSubmittingListing(false));
+  };
 
+  // Helper variables
+  const vp = user.viral_power || 0;
+  const currentTier = user.quality_score || 'New User';
+  const stakedAmount = (balance as any).staked_amount || 0;
+  const stakeUnlockAt = (balance as any).stake_unlock_at;
+
+  let tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
+  let tierDiscount = '0%';
+  let nextTierDetails = '';
+
+  if (stakedAmount >= 25000) {
+    tierColor = 'text-[#38F8B0] border-[#38F8B0]/20 bg-[#38F8B0]/5';
+    tierDiscount = '75%';
+    nextTierDetails = 'Max Level Achieved';
+  } else if (stakedAmount >= 5000) {
+    tierColor = 'text-yellow-400 border-yellow-400/20 bg-yellow-400/5';
+    tierDiscount = '50%';
+    nextTierDetails = 'Diamond Partner: Stake 25,000 vVIRAL';
+  } else if (stakedAmount >= 1000) {
+    tierColor = 'text-purple-400 border-purple-400/20 bg-purple-400/5';
+    tierDiscount = '20%';
+    nextTierDetails = 'Gold: Stake 5,000 vVIRAL';
+  } else {
+    tierColor = 'text-gray-400 border-gray-400/20 bg-gray-400/5';
+    tierDiscount = '0%';
+    nextTierDetails = 'Silver: Stake 1,000 vVIRAL';
+  }
+
+  // Filter and search marketplace
+  const filteredListings = marketplaceListings.filter(listing => {
+    const matchesCategory = marketFilter === 'all' || listing.category === marketFilter;
+    const matchesSearch = listing.title.toLowerCase().includes(marketSearch.toLowerCase()) || 
+                          listing.description.toLowerCase().includes(marketSearch.toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
 
   return (
     <div className="space-y-4">
-      {/* 0. Quality Score Progression Bento Card */}
+      {/* Quality Score Progression Bento Card */}
       <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3 relative overflow-hidden">
         <div className="absolute -top-12 -right-12 h-24 w-24 rounded-full bg-[#8A2BFF]/5 blur-2xl"></div>
         
@@ -219,25 +316,22 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
           </div>
           
           <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded border ${tierColor}`}>
-            {currentTier}
+            {currentTier} (Staked: {stakedAmount.toLocaleString()} vVIRAL)
           </span>
         </div>
 
-        {/* ProgressBar */}
+        {/* Dynamic Tier indicator */}
+        <div className="text-[10px] font-mono text-[#A9A3B8] flex justify-between items-center">
+          <span>Fee Discount: <b className="text-[#38F8B0]">{tierDiscount}</b></span>
+          <span>Next level: <b className="text-[#B066FF]">{nextTierDetails}</b></span>
+        </div>
+
+        {/* Progress Bar */}
         <div className="space-y-1.5">
-          <div className="flex justify-between text-[10px] font-mono text-[#A9A3B8]">
-            <span>Reputation: {vp} VP</span>
-            {progressMax > progressMin && (
-              <span>Next level: {progressMax} VP</span>
-            )}
-          </div>
-          
           <div className="w-full h-2 rounded bg-[#05020D]/80 border border-[#A9A3B8]/10 overflow-hidden p-0.5">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${percent}%` }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
-              className="h-full rounded bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] shadow-[0_0_8px_rgba(138,43,255,0.5)]"
+            <div
+              className="h-full rounded bg-gradient-to-r from-[#8A2BFF] to-[#38F8B0] shadow-[0_0_8px_rgba(138,43,255,0.5)] transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(5, stakedAmount > 0 ? (stakedAmount / 25000) * 100 : (vp / 100) * 100))}%` }}
             />
           </div>
         </div>
@@ -253,63 +347,96 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
             >
               <div className="flex items-start gap-1.5 text-xs text-white font-bold">
                 <Info className="h-4 w-4 text-[#B066FF] shrink-0 mt-0.5" />
-                <span>How Quality Score impacts your profile:</span>
+                <span>Ecosystem Staking Levels & Benefits:</span>
               </div>
               
-              <div className="grid gap-2.5 sm:grid-cols-3 pt-1">
+              <div className="grid gap-2.5 sm:grid-cols-4 pt-1">
                 <div className="bg-[#05020D]/40 border border-[#A9A3B8]/5 p-2 rounded space-y-1">
-                  <div className="font-bold text-white text-[10px] uppercase font-mono">1. New User (0-24 VP)</div>
-                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
-                    Basic campaign eligibility. Daily vVIRAL reward limit cap is 500. Standard audit verification delay.
+                  <div className="font-bold text-white text-[9px] uppercase font-mono">Bronze (Default)</div>
+                  <p className="text-[9px] leading-relaxed text-[#A9A3B8]/80">
+                    10% Creation Fee. Base 1.0x reward multiplier.
                   </p>
                 </div>
                 <div className="bg-[#8A2BFF]/5 border border-[#8A2BFF]/10 p-2 rounded space-y-1">
-                  <div className="font-bold text-[#B066FF] text-[10px] uppercase font-mono">2. Verified User (25-49 VP)</div>
-                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
-                    Daily reward limit increased to 1,000 vVIRAL. Unlocks premium websites and Telegram verification channels.
+                  <div className="font-bold text-[#B066FF] text-[9px] uppercase font-mono">Silver (1K+ Stake)</div>
+                  <p className="text-[9px] leading-relaxed text-[#A9A3B8]/80">
+                    8% Creation Fee. +20% extra reputation & higher referral yield.
                   </p>
                 </div>
                 <div className="bg-[#FFD36A]/5 border border-[#FFD36A]/10 p-2 rounded space-y-1">
-                  <div className="font-bold text-[#FFD36A] text-[10px] uppercase font-mono">3. Active & Trusted (50+ VP)</div>
-                  <p className="text-[10px] leading-relaxed text-[#A9A3B8]/80">
-                    Up to 2,500 daily vVIRAL. Fast-track withdrawals, exclusive high-tier promoter tasks, and manual audit immunity.
+                  <div className="font-bold text-[#FFD36A] text-[9px] uppercase font-mono">Gold (5K+ Stake)</div>
+                  <p className="text-[9px] leading-relaxed text-[#A9A3B8]/80">
+                    5% Creation Fee. Instant auto-audit immunities for resources.
+                  </p>
+                </div>
+                <div className="bg-[#38F8B0]/5 border border-[#38F8B0]/10 p-2 rounded space-y-1">
+                  <div className="font-bold text-[#38F8B0] text-[9px] uppercase font-mono">Diamond (25K+ Stake)</div>
+                  <p className="text-[9px] leading-relaxed text-[#A9A3B8]/80">
+                    2% Creation Fee. Verified Partner badge, 1.5x Task payouts.
                   </p>
                 </div>
               </div>
-
-              <p className="text-[10px] text-[#A9A3B8]/60 italic">
-                💡 Tip: Earn +1 VP for every daily check-in streak milestone, and completing verified advertiser actions!
-              </p>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
       {/* Elegant Sub-navigation Tab Bar */}
-      <div className="flex border border-[#A9A3B8]/10 bg-[#0B0618]/60 p-1 rounded-xl gap-1">
+      <div className="grid grid-cols-2 md:grid-cols-5 border border-[#A9A3B8]/10 bg-[#0B0618]/60 p-1 rounded-xl gap-1">
         <button
-          id="subtab-profile"
           onClick={() => setActiveSubTab('profile')}
-          className={`flex-1 py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+          className={`py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
             activeSubTab === 'profile'
               ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF] shadow-[0_0_12px_rgba(138,43,255,0.15)]'
               : 'border border-transparent text-[#A9A3B8] hover:text-white'
           }`}
         >
           <UserCheck className="h-3.5 w-3.5" />
-          <span>Profile & Security</span>
+          <span>Profile</span>
         </button>
         <button
-          id="subtab-faq"
+          onClick={() => setActiveSubTab('staking')}
+          className={`py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            activeSubTab === 'staking'
+              ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF] shadow-[0_0_12px_rgba(138,43,255,0.15)]'
+              : 'border border-transparent text-[#A9A3B8] hover:text-white'
+          }`}
+        >
+          <Lock className="h-3.5 w-3.5" />
+          <span>Staking</span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('marketplace')}
+          className={`py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            activeSubTab === 'marketplace'
+              ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF] shadow-[0_0_12px_rgba(138,43,255,0.15)]'
+              : 'border border-transparent text-[#A9A3B8] hover:text-white'
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>Market</span>
+        </button>
+        <button
+          onClick={() => setActiveSubTab('economy')}
+          className={`py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+            activeSubTab === 'economy'
+              ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF] shadow-[0_0_12px_rgba(138,43,255,0.15)]'
+              : 'border border-transparent text-[#A9A3B8] hover:text-white'
+          }`}
+        >
+          <TrendingUp className="h-3.5 w-3.5" />
+          <span>Economy</span>
+        </button>
+        <button
           onClick={() => setActiveSubTab('faq')}
-          className={`flex-1 py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+          className={`py-2 px-1 text-center rounded-lg text-[10px] font-bold font-mono uppercase tracking-wider flex items-center justify-center gap-1.5 transition-all cursor-pointer col-span-2 md:col-span-1 ${
             activeSubTab === 'faq'
               ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF] shadow-[0_0_12px_rgba(138,43,255,0.15)]'
               : 'border border-transparent text-[#A9A3B8] hover:text-white'
           }`}
         >
           <BookOpen className="h-3.5 w-3.5" />
-          <span>Ecosystem FAQ</span>
+          <span>FAQ</span>
         </button>
       </div>
 
@@ -324,7 +451,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
             transition={{ duration: 0.15 }}
             className="space-y-4"
           >
-            {/* 1. Account Credentials & System Fields Bento Grid */}
+            {/* Account Credentials & System Fields Bento Grid */}
             <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4">
               <h3 className="font-sans text-xs font-bold text-[#B066FF] uppercase tracking-wider flex items-center gap-1.5">
                 <UserCheck className="h-4 w-4" /> Account Credentials Profile
@@ -410,7 +537,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
               </div>
             </div>
 
-            {/* 2. TonConnect connectivity Hub */}
+            {/* TonConnect connectivity Hub */}
             <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4">
               <div className="flex justify-between items-center">
                 <h3 className="font-sans text-xs font-bold text-[#38F8B0] uppercase tracking-wider flex items-center gap-1.5">
@@ -423,7 +550,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                 </span>
               </div>
 
-              {/* Mandatory Security Warning Card */}
+              {/* Security Protocol Warning Card */}
               <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 flex gap-2.5 items-start">
                 <ShieldAlert className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
                 <div className="space-y-0.5">
@@ -441,7 +568,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                   </p>
                   <button
                     type="button"
-                    id="btn-connect-tonconnect"
                     onClick={() => {
                       if (tonConnectUI) {
                         tonConnectUI.openModal();
@@ -462,7 +588,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                       </div>
                       <button
                         type="button"
-                        id="btn-disconnect-wallet"
                         onClick={() => {
                           if (tonConnectUI) {
                             tonConnectUI.disconnect();
@@ -490,7 +615,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                           ) : realTonBalance !== null ? (
                             `${realTonBalance.toFixed(4)} TON`
                           ) : (
-                            'N/A'
+                            '0.00'
                           )}
                         </span>
                       </div>
@@ -502,7 +627,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                           ) : realGramBalance !== null ? (
                             `${realGramBalance.toFixed(4)} GRAM`
                           ) : (
-                            'N/A'
+                            '0.00'
                           )}
                         </span>
                       </div>
@@ -600,7 +725,7 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
               )}
             </div>
 
-            {/* 3. Multi-Login Security, Linking & Verification */}
+            {/* Social logins */}
             <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
               <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
                 <BadgeCheck className="h-4 w-4" /> Multi-Login & Account Security
@@ -711,50 +836,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                   )}
                 </div>
 
-                {/* Other Social linking platforms */}
-                <div className="flex flex-col gap-1.5 pt-1.5 border-b border-[#A9A3B8]/5 pb-2">
-                  <span className="text-[8px] font-mono tracking-wider text-[#A9A3B8] uppercase block">Future Social Integrations</span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {['Twitter (X)', 'Apple ID', 'Discord', 'Facebook'].map((soc) => (
-                      <button
-                        key={soc}
-                        type="button"
-                        onClick={() => {
-                          const confirmed = window.confirm(`Authorize linking with ${soc}? This will securely merge provider metadata on backend.`);
-                          if (!confirmed) return;
-                          setLoading(true);
-                          const mockProvName = soc.toLowerCase().split(' ')[0];
-                          const mockProvId = `soc_prov_id_${Math.random().toString(36).substring(2, 8)}`;
-                          fetch('/api/auth/link', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                              userId: user.id,
-                              provider: mockProvName,
-                              provider_user_id: mockProvId
-                            })
-                          })
-                            .then(res => res.json())
-                            .then(data => {
-                              setLoading(false);
-                              if (data.error) {
-                                alert(data.error);
-                              } else {
-                                onProfileUpdated();
-                                fetchProviders();
-                                alert(`Success! Simulated link with ${soc} connected to secure DB profiles. +20 vVIRAL secure bonus granted.`);
-                              }
-                            })
-                            .catch(() => setLoading(false));
-                        }}
-                        className="rounded border border-[#A9A3B8]/10 bg-[#05020D]/60 px-2 py-1 text-[9px] text-[#A9A3B8] hover:text-white hover:border-[#8A2BFF]/40 cursor-pointer transition-all"
-                      >
-                        + Link {soc}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {/* Active Connected Providers List */}
                 {connectedProviders.length > 0 && (
                   <div className="bg-[#05020D]/60 rounded-lg p-2.5 border border-[#A9A3B8]/10 space-y-1.5 mt-2">
@@ -786,28 +867,6 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
                 )}
               </div>
             </div>
-
-            {/* 3.6 Administrator Console (For authorized admins only) */}
-            {(user.role === 'admin' || user.is_admin === true || (user.telegram_id && ['8618331744', '6228196481', '5314622858'].includes(user.telegram_id.toString()))) && (
-              <div className="rounded-xl border border-[#FFD36A]/30 bg-[#120B04]/90 glass p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-sans text-xs font-bold text-[#FFD36A] uppercase tracking-wider flex items-center gap-1.5">
-                    <Settings className="h-4 w-4 text-[#FFD36A]" /> Administrator Console
-                  </h3>
-                  <span className="text-[8px] font-mono bg-[#FFD36A]/10 text-[#FFD36A] border border-[#FFD36A]/20 px-2 py-0.5 rounded uppercase font-bold">Authorized</span>
-                </div>
-                <p className="text-[11px] text-[#A9A3B8] leading-relaxed">
-                  You are recognized as an official platform administrator. Open the full administration panel to manage users, campaigns, resources, escrow, and platform variables.
-                </p>
-                <button
-                  type="button"
-                  onClick={onOpenAdminSection}
-                  className="w-full bg-gradient-to-r from-[#FFD36A] to-[#FF9F1C] hover:from-[#FF9F1C] hover:to-[#FFD36A] text-black text-xs font-bold py-2.5 px-4 rounded-lg shadow-lg shadow-[#FFD36A]/10 transition-all cursor-pointer flex items-center justify-center gap-2 border border-[#FFD36A]/30 hover:scale-[1.01] active:scale-[0.99]"
-                >
-                  <Settings className="h-4 w-4 text-black" /> Enter Admin Console
-                </button>
-              </div>
-            )}
 
             {/* Profile update details */}
             <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-3">
@@ -854,6 +913,380 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
           </motion.div>
         )}
 
+        {activeSubTab === 'staking' && (
+          <motion.div
+            key="staking-panel"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            {/* Interactive Staking module */}
+            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-5 space-y-4">
+              <div className="flex items-center gap-2 border-b border-[#A9A3B8]/10 pb-3">
+                <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-[#8A2BFF] to-[#B066FF] flex items-center justify-center text-white font-bold">
+                  <Lock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">VIRAL Sovereign Staking Vault</h3>
+                  <p className="text-[10px] text-[#A9A3B8]">Lock vVIRAL to gain platform privileges & reduce campaign commissions</p>
+                </div>
+              </div>
+
+              {/* Balances Display */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-[#05020D]/60 border border-[#A9A3B8]/10">
+                  <span className="text-[8px] font-mono text-[#A9A3B8] uppercase block">Your Available Liquid</span>
+                  <span className="text-lg font-black text-[#FFD36A] font-mono">{balance.vviral_balance.toLocaleString()} vVIRAL</span>
+                </div>
+                <div className="p-3 rounded-lg bg-[#8A2BFF]/10 border border-[#8A2BFF]/20">
+                  <span className="text-[8px] font-mono text-[#B066FF] uppercase block">Your Staked locked</span>
+                  <span className="text-lg font-black text-[#38F8B0] font-mono">{stakedAmount.toLocaleString()} vVIRAL</span>
+                </div>
+              </div>
+
+              {/* Staking constraints and information */}
+              {stakeUnlockAt && (
+                <div className="text-[10px] font-mono bg-[#05020D]/80 border border-[#A9A3B8]/5 p-2.5 rounded text-[#A9A3B8]">
+                  🔒 Stake Unlock Scheduled At: <b className="text-white">{new Date(stakeUnlockAt).toLocaleString()}</b>
+                </div>
+              )}
+
+              {/* Interactive Inputs */}
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[9px] font-mono uppercase text-[#A9A3B8]">Amount to Stake / Unstake (vVIRAL)</label>
+                  <input
+                    type="number"
+                    value={stakeAmount}
+                    onChange={(e) => setStakeAmount(e.target.value)}
+                    placeholder="Enter vVIRAL token count"
+                    className="w-full rounded-lg border border-[#A9A3B8]/15 bg-[#05020D] p-3 text-xs text-white focus:border-[#8A2BFF] focus:outline-none font-mono"
+                  />
+                </div>
+
+                {stakingError && <div className="text-xs text-[#FF4D6D] bg-[#FF4D6D]/10 border border-[#FF4D6D]/15 p-2 rounded">{stakingError}</div>}
+                {stakingSuccess && <div className="text-xs text-[#38F8B0] bg-[#38F8B0]/10 border border-[#38F8B0]/15 p-2 rounded">{stakingSuccess}</div>}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleStakingAction('stake')}
+                    disabled={stakingLoading}
+                    className="flex-1 rounded-lg bg-[#38F8B0] text-[#05020D] hover:bg-[#38F8B0]/95 font-black text-xs py-2.5 cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#38F8B0]/5"
+                  >
+                    <Lock className="h-3.5 w-3.5" /> Stake & Lock (30d)
+                  </button>
+                  <button
+                    onClick={() => handleStakingAction('unstake')}
+                    disabled={stakingLoading}
+                    className="flex-1 rounded-lg border border-[#FF4D6D]/30 hover:bg-[#FF4D6D]/10 font-bold text-xs py-2.5 text-[#FF4D6D] cursor-pointer transition-all flex items-center justify-center gap-1.5"
+                  >
+                    <UnlockIcon className="h-3.5 w-3.5" /> Unstake
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* AI Financial Advisor Widget */}
+            <div className="rounded-xl border border-[#38F8B0]/30 bg-[#050F0B]/95 glass p-5 space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-[#38F8B0]/10 border border-[#38F8B0]/20 flex items-center justify-center">
+                    <Cpu className="h-4 w-4 text-[#38F8B0]" />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-[#38F8B0] uppercase tracking-wider font-mono">AI Sovereign Advisor</h3>
+                    <p className="text-[9px] text-[#A9A3B8]">Generative spending optimization & campaign budget allocation tips</p>
+                  </div>
+                </div>
+                <button
+                  onClick={fetchAiAdvice}
+                  disabled={loadingAdvisor}
+                  className="rounded p-1.5 bg-[#38F8B0]/10 hover:bg-[#38F8B0]/20 border border-[#38F8B0]/20 text-[#38F8B0] cursor-pointer"
+                  title="Reload Advice"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingAdvisor ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {loadingAdvisor ? (
+                <div className="space-y-2 py-4 text-center">
+                  <div className="h-4 w-4 rounded-full border border-[#38F8B0] border-t-transparent animate-spin mx-auto"></div>
+                  <p className="text-[10px] text-[#A9A3B8] font-mono animate-pulse">Generative Engine analyzing active campaigns & ledger logs...</p>
+                </div>
+              ) : (
+                <div className="grid gap-2">
+                  {aiAdvice.length > 0 ? aiAdvice.map((tip, idx) => (
+                    <div key={idx} className="bg-[#05020D]/60 border border-[#38F8B0]/15 p-3 rounded-lg flex items-start gap-2.5">
+                      <Sparkles className="h-4 w-4 text-[#38F8B0] shrink-0 mt-0.5" />
+                      <p className="text-[11px] text-[#A9A3B8] leading-relaxed">{tip}</p>
+                    </div>
+                  )) : (
+                    <p className="text-xs text-[#A9A3B8] italic text-center py-2">No custom economic tips generated. Tap reload to ask the Sovereign Advisor.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeSubTab === 'marketplace' && (
+          <motion.div
+            key="marketplace-panel"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            {/* Owner Listing manager section */}
+            {ownResources.length > 0 && (
+              <div className="rounded-xl border border-purple-500/30 bg-[#10091D]/85 p-4 space-y-3">
+                <h3 className="font-sans text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <UserCheck className="h-4 w-4" /> Manage Your Marketplace Listings
+                </h3>
+                <p className="text-[10px] text-[#A9A3B8]">
+                  Toggle the visibility of your verified channels inside the Autonomous Marketplace to let advertisers discover and sponsor you.
+                </p>
+
+                <div className="space-y-2">
+                  {ownResources.map((res: any) => (
+                    <div key={res.id} className="bg-[#05020D]/60 rounded-lg p-3 border border-purple-500/15 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-white">{res.title}</span>
+                          <span className="text-[8px] bg-purple-500/10 text-purple-400 px-1.5 py-0.2 border border-purple-500/20 rounded font-mono uppercase">{res.category}</span>
+                        </div>
+                        <p className="text-[10px] text-[#A9A3B8] mt-0.5 truncate max-w-[280px]">{res.description}</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+                        <input
+                          type="text"
+                          value={listingPriceRange}
+                          onChange={(e) => setListingPriceRange(e.target.value)}
+                          placeholder="Price: e.g. 500-1500 vVIRAL"
+                          className="rounded bg-[#05020D]/80 border border-purple-500/20 px-2 py-1 text-[10px] text-white focus:outline-none w-32"
+                        />
+                        <button
+                          onClick={() => handleMarketplaceListToggle(res.id, res.marketplace_listed)}
+                          disabled={submittingListing}
+                          className={`rounded px-3 py-1 text-[10px] font-bold cursor-pointer transition-all ${
+                            res.marketplace_listed 
+                              ? 'bg-red-500/20 border border-red-500/30 text-red-400 hover:bg-red-500/30' 
+                              : 'bg-green-500/20 border border-green-500/30 text-green-400 hover:bg-green-500/30'
+                          }`}
+                        >
+                          {res.marketplace_listed ? 'Unlist' : 'List on Market'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Autonomous Marketplace Discovery Directory */}
+            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-[#A9A3B8]/10 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Autonomous Discovery Marketplace</h3>
+                  <p className="text-[10px] text-[#A9A3B8]">Browse verified communities, channels, mini-apps & influencers</p>
+                </div>
+                
+                {/* Search field */}
+                <div className="relative w-full sm:w-48 shrink-0">
+                  <Search className="h-3 w-3 text-[#A9A3B8] absolute left-2.5 top-2.5" />
+                  <input
+                    type="text"
+                    value={marketSearch}
+                    onChange={(e) => setMarketSearch(e.target.value)}
+                    placeholder="Search resources..."
+                    className="w-full rounded bg-[#05020D]/80 border border-[#A9A3B8]/15 py-1 px-2 pl-7.5 text-[10px] text-white focus:outline-none focus:border-[#8A2BFF]"
+                  />
+                </div>
+              </div>
+
+              {/* Filtering Controls */}
+              <div className="flex flex-wrap gap-1">
+                {['all', 'channel', 'bot', 'miniapp', 'website'].map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setMarketFilter(cat)}
+                    className={`rounded px-2.5 py-1 text-[9px] font-bold font-mono uppercase tracking-wider cursor-pointer transition-all ${
+                      marketFilter === cat 
+                        ? 'bg-[#8A2BFF]/20 border border-[#8A2BFF]/40 text-[#B066FF]' 
+                        : 'border border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white bg-[#05020D]/30'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Resource Listings grid */}
+              {loadingMarketplace ? (
+                <div className="py-12 text-center text-[#A9A3B8] font-mono animate-pulse text-xs">
+                  Reloading verified autonomous listings...
+                </div>
+              ) : filteredListings.length > 0 ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {filteredListings.map((res: any) => (
+                    <div key={res.id} className="rounded-lg border border-[#A9A3B8]/10 bg-[#05020D]/60 p-3.5 space-y-3 hover:border-[#8A2BFF]/35 transition-all flex flex-col justify-between">
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-0.5">
+                            <h4 className="text-xs font-bold text-white truncate max-w-[130px]">{res.title}</h4>
+                            <span className="text-[8px] text-[#A9A3B8] font-mono uppercase block">{res.category}</span>
+                          </div>
+                          
+                          <div className="flex flex-col items-end shrink-0">
+                            <span className="text-[10px] font-bold text-[#FFD36A] font-mono">{res.marketplace_price_range}</span>
+                            <span className="text-[8px] text-[#A9A3B8] font-mono">Suggested ad fee</span>
+                          </div>
+                        </div>
+
+                        <p className="text-[10px] text-[#A9A3B8] leading-relaxed line-clamp-2">{res.description}</p>
+                      </div>
+
+                      <div className="border-t border-[#A9A3B8]/5 pt-2.5 mt-1 grid grid-cols-3 gap-1 text-center font-mono">
+                        <div>
+                          <span className="text-[7px] text-[#A9A3B8] uppercase block">Followers</span>
+                          <span className="text-[10px] font-bold text-white">{res.followers_count ? res.followers_count.toLocaleString() : '5k+'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[7px] text-[#A9A3B8] uppercase block">Trust Score</span>
+                          <span className={`text-[10px] font-bold ${res.trust_score >= 80 ? 'text-[#38F8B0]' : 'text-[#FFD36A]'}`}>{res.trust_score || 95}/100</span>
+                        </div>
+                        <div>
+                          <span className="text-[7px] text-[#A9A3B8] uppercase block">Completion Rate</span>
+                          <span className="text-[10px] font-bold text-[#38F8B0]">{res.campaign_success_rate || 94}%</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-12 text-center text-[#A9A3B8] italic text-xs">
+                  No listings found matching this category filter.
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {activeSubTab === 'economy' && (
+          <motion.div
+            key="economy-panel"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.15 }}
+            className="space-y-4"
+          >
+            {/* Financial Dashboard Bento metrics */}
+            {economyStats && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                <div className="bg-[#05020D]/80 rounded-xl p-3 border border-[#A9A3B8]/10 relative overflow-hidden">
+                  <span className="text-[7.5px] font-mono text-[#A9A3B8] uppercase block font-bold tracking-wider">Total $VIRAL Supply</span>
+                  <span className="text-sm font-black text-white font-mono block mt-1">{(economyStats.total_supply || 10000000).toLocaleString()}</span>
+                  <span className="text-[7px] text-gray-500 font-mono">Fixed Hardcap Supply</span>
+                </div>
+                <div className="bg-[#05020D]/80 rounded-xl p-3 border border-red-500/20 relative overflow-hidden">
+                  <div className="absolute right-2 top-2 text-red-500/15"><Flame className="h-8 w-8" /></div>
+                  <span className="text-[7.5px] font-mono text-red-400 uppercase block font-bold tracking-wider">Burned Tokens</span>
+                  <span className="text-sm font-black text-red-400 font-mono block mt-1">{(economyStats.burned_tokens || 125000).toLocaleString()}</span>
+                  <span className="text-[7px] text-gray-500 font-mono">Out of circulation forever</span>
+                </div>
+                <div className="bg-[#05020D]/80 rounded-xl p-3 border-[#38F8B0]/20 border relative overflow-hidden">
+                  <span className="text-[7.5px] font-mono text-[#38F8B0] uppercase block font-bold tracking-wider">Locked Tokens</span>
+                  <span className="text-sm font-black text-[#38F8B0] font-mono block mt-1">{(economyStats.locked_tokens || 450000).toLocaleString()}</span>
+                  <span className="text-[7px] text-gray-500 font-mono">Staked + Escrow Balances</span>
+                </div>
+                <div className="bg-[#05020D]/80 rounded-xl p-3 border-[#B066FF]/20 border relative overflow-hidden">
+                  <span className="text-[7.5px] font-mono text-[#B066FF] uppercase block font-bold tracking-wider">Circulating Supply</span>
+                  <span className="text-sm font-black text-[#B066FF] font-mono block mt-1">{(economyStats.circulating_supply || 9425000).toLocaleString()}</span>
+                  <span className="text-[7px] text-gray-500 font-mono">Active Liquid Supply</span>
+                </div>
+              </div>
+            )}
+
+            {/* Escrow Balance & Volume metrics */}
+            {economyStats && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 font-sans">
+                <div className="bg-[#0B0618]/60 p-3.5 border border-[#A9A3B8]/10 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-mono text-[#A9A3B8] uppercase">Active Escrow Balance</span>
+                  <div className="text-lg font-black text-[#38F8B0] font-mono">{(economyStats.escrow_balance || 32500).toLocaleString()} vVIRAL</div>
+                  <p className="text-[9px] text-gray-500">Locked in active promotional campaigns</p>
+                </div>
+                <div className="bg-[#0B0618]/60 p-3.5 border border-[#A9A3B8]/10 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-mono text-[#A9A3B8] uppercase">Daily Campaign Volume</span>
+                  <div className="text-lg font-black text-white font-mono">{(economyStats.daily_campaign_volume || 52500).toLocaleString()} vVIRAL</div>
+                  <p className="text-[9px] text-gray-500">Transacted in the last 24 hours</p>
+                </div>
+                <div className="bg-[#0B0618]/60 p-3.5 border border-[#A9A3B8]/10 rounded-xl space-y-0.5">
+                  <span className="text-[8px] font-mono text-[#A9A3B8] uppercase">Marketplace Volume</span>
+                  <div className="text-lg font-black text-[#FFD36A] font-mono">{(economyStats.marketplace_volume || 110000).toLocaleString()} vVIRAL</div>
+                  <p className="text-[9px] text-gray-500">Accumulated marketplace ad transactions</p>
+                </div>
+              </div>
+            )}
+
+            {/* Public Economy Transparency Ledger */}
+            <div className="rounded-xl border border-[#A9A3B8]/15 bg-[#0B0618]/80 glass p-4 space-y-4">
+              <div className="flex justify-between items-center border-b border-[#A9A3B8]/10 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">Ecosystem Ledger & Transparency Hub</h3>
+                  <p className="text-[10px] text-[#A9A3B8]">Audit logs for on-chain staking, escrow locks & burn transactions</p>
+                </div>
+                <button
+                  onClick={fetchEconomyStats}
+                  className="rounded p-1 bg-[#A9A3B8]/5 border border-[#A9A3B8]/10 text-[#A9A3B8] hover:text-white cursor-pointer"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${loadingStats ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {loadingStats ? (
+                <div className="py-8 text-center text-xs font-mono animate-pulse text-[#A9A3B8]">
+                  Reloading secure ledger synchronization stats...
+                </div>
+              ) : economyStats?.recent_transactions ? (
+                <div className="space-y-1.5 font-mono max-h-64 overflow-y-auto">
+                  {economyStats.recent_transactions.map((tx: any) => (
+                    <div key={tx.id} className="text-[9px] bg-[#05020D]/60 rounded p-2 border border-[#A9A3B8]/5 flex justify-between items-center gap-2">
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="flex items-center gap-1">
+                          <span className={`font-bold px-1 rounded uppercase scale-90 ${
+                            tx.type === 'stake_lock' ? 'bg-blue-500/10 text-blue-400' :
+                            tx.type === 'stake_unlock' ? 'bg-[#38F8B0]/10 text-[#38F8B0]' :
+                            tx.type.includes('burn') ? 'bg-red-500/10 text-red-400' :
+                            'bg-yellow-500/10 text-yellow-400'
+                          }`}>
+                            {tx.type}
+                          </span>
+                          <span className="text-white font-semibold truncate max-w-[120px]">{tx.metadata || 'Ecosystem Action'}</span>
+                        </div>
+                        <span className="text-gray-500 text-[8px] block">{new Date(tx.created_at).toLocaleString()}</span>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className={`font-bold ${tx.direction === 'debit' ? 'text-red-400' : 'text-green-400'}`}>
+                          {tx.direction === 'debit' ? '-' : '+'}{tx.amount.toLocaleString()} vVIRAL
+                        </span>
+                        <span className="text-gray-600 block text-[7px]">Tx ID: {tx.id.substring(0, 10)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-[#A9A3B8] italic text-center py-4">No recent economy transactions recorded in ledger.</p>
+              )}
+            </div>
+          </motion.div>
+        )}
+
         {activeSubTab === 'faq' && (
           <motion.div
             key="faq-panel"
@@ -863,13 +1296,12 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
             transition={{ duration: 0.15 }}
             className="space-y-4"
           >
-            {/* Dedicated High-Density FAQ Component */}
             <FAQ />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 5. Platform Disclaimer Section */}
+      {/* Platform Disclaimer Section */}
       <div className="rounded-xl border border-[#FF4D6D]/20 bg-[#FF4D6D]/5 p-4 space-y-1.5">
         <h4 className="text-xs font-bold text-[#FF4D6D] uppercase tracking-wide flex items-center gap-1.5">
           <ShieldAlert className="h-3.5 w-3.5 shrink-0" /> Ecosystem Disclaimer
@@ -879,11 +1311,21 @@ export default function More({ user, balance, onProfileUpdated, onOpenAdminSecti
         </p>
       </div>
 
-      {/* 6. Version & Deployment Label */}
+      {/* Version & Deployment Label */}
       <div className="rounded-xl border border-[#A9A3B8]/10 bg-[#0B0618]/50 p-4 text-center space-y-1">
-        <p className="text-xs font-mono text-[#38F8B0] font-bold">Build: admin-secure-v1</p>
-        <p className="text-[10px] font-mono text-[#A9A3B8]">Deployed at: 2026-06-24 14:24:00 (Ecosystem Live Node)</p>
+        <p className="text-xs font-mono text-[#38F8B0] font-bold">Build: autonomous-economy-v5</p>
+        <p className="text-[10px] font-mono text-[#A9A3B8]">Deployed at: 2026-06-27 12:00:00 (Sovereign Autonomous Node)</p>
       </div>
     </div>
+  );
+}
+
+// Simple internal helper component
+function UnlockIcon({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+    </svg>
   );
 }
