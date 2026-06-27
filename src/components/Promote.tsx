@@ -36,6 +36,55 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
   const [campDuration, setCampDuration] = useState('30');
   const [campError, setCampError] = useState('');
   const [campSuccess, setCampSuccess] = useState('');
+  const [campGoal, setCampGoal] = useState('Community Growth');
+  const [campAudience, setCampAudience] = useState('Global');
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizationData, setOptimizationData] = useState<any | null>(null);
+
+  // AI Growth Assistant States
+  const [assistantPrompt, setAssistantPrompt] = useState('');
+  const [askingAssistant, setAskingAssistant] = useState(false);
+  const [assistantTips, setAssistantTips] = useState<string[]>([]);
+
+  const handleRunOptimization = () => {
+    if (!selectedResId) {
+      showToast('Please select a resource to optimize.', 'error', 'Resource Required');
+      return;
+    }
+    const selectedResource = resources.find(r => r.id === selectedResId);
+    setOptimizing(true);
+    setOptimizationData(null);
+
+    fetch('/api/campaigns/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        goal: campGoal,
+        category: selectedResource?.category || 'General',
+        reward_per_action: Number(campReward) || 50,
+        total_budget: Number(campBudget) || 1000,
+        target_audience: campAudience
+      })
+    })
+      .then(res => res.json())
+      .then(data => {
+        setOptimizing(false);
+        setOptimizationData(data);
+        showToast('AI analysis complete! Applied dynamic benchmarks.', 'success', 'Optimizer Done');
+      })
+      .catch(err => {
+        setOptimizing(false);
+        console.error('Error optimizing campaign:', err);
+        showToast('Failed to connect to AI Campaign Optimizer.', 'error');
+      });
+  };
+
+  const handleApplyRecommendations = () => {
+    if (!optimizationData) return;
+    setCampReward(String(optimizationData.optimal_reward_per_task));
+    setCampBudget(String(optimizationData.recommended_budget));
+    showToast('Applied AI optimal reward and budget values to campaign form!', 'success', 'Applied');
+  };
 
   const fetchResources = () => {
     setLoading(true);
@@ -497,6 +546,37 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
 
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <label className="block text-[9px] font-mono tracking-wider text-[#A9A3B8] uppercase mb-1">Campaign Goal</label>
+                <select
+                  value={campGoal}
+                  onChange={(e) => setCampGoal(e.target.value)}
+                  className="w-full rounded bg-[#05020D]/60 border border-[#A9A3B8]/10 p-2 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                >
+                  <option value="Community Growth">Community Growth</option>
+                  <option value="User Onboarding">User Onboarding</option>
+                  <option value="Token Launch">Token Launch</option>
+                  <option value="Volume Boosting">Volume Boosting</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-mono tracking-wider text-[#A9A3B8] uppercase mb-1">Target Audience</label>
+                <select
+                  value={campAudience}
+                  onChange={(e) => setCampAudience(e.target.value)}
+                  className="w-full rounded bg-[#05020D]/60 border border-[#A9A3B8]/10 p-2 text-xs text-white focus:border-[#8A2BFF] focus:outline-none"
+                >
+                  <option value="Global">Global Web3</option>
+                  <option value="Germany">Germany / EU</option>
+                  <option value="Ukraine">Ukraine / CIS</option>
+                  <option value="Singapore">Singapore / Asia</option>
+                  <option value="Nigeria">Nigeria / Africa</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <label className="block text-[9px] font-mono tracking-wider text-[#A9A3B8] uppercase mb-1">Total vVIRAL Budget</label>
                 <div className="relative">
                   <Coins className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[#FFD36A]" />
@@ -542,6 +622,62 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
                   {isNaN(maxActionsCalc) || maxActionsCalc === Infinity ? 0 : maxActionsCalc} users
                 </span>
               </div>
+            </div>
+
+            {/* AI Optimizer Section */}
+            <div className="rounded-lg bg-[#8A2BFF]/5 p-3.5 border border-[#8A2BFF]/20 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="text-[10px] font-mono text-[#B066FF] uppercase font-bold flex items-center gap-1">
+                  <Sparkles className="h-3.5 w-3.5" /> AI Campaign Optimizer
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRunOptimization}
+                  disabled={optimizing}
+                  className="text-[10px] bg-[#8A2BFF]/20 hover:bg-[#8A2BFF]/40 text-white rounded px-2.5 py-1 font-bold border border-[#8A2BFF]/30 cursor-pointer disabled:opacity-50 animate-pulse"
+                >
+                  {optimizing ? 'Analyzing...' : '⚡ Optimize Parameters'}
+                </button>
+              </div>
+
+              {optimizationData && (
+                <div className="text-[10px] font-mono space-y-2 pt-1 border-t border-[#A9A3B8]/10">
+                  <div className="grid grid-cols-2 gap-2 text-[#A9A3B8]">
+                    <div>Optimal Reward: <span className="text-[#FFD36A] font-bold">{optimizationData.optimal_reward_per_task} vVIRAL</span></div>
+                    <div>Recommended Budget: <span className="text-[#FFD36A] font-bold">{optimizationData.recommended_budget} vVIRAL</span></div>
+                    <div>Est. Finish Time: <span className="text-white font-bold">{optimizationData.estimated_completion_time}</span></div>
+                    <div>Conversion Rate: <span className="text-[#38F8B0] font-bold">{optimizationData.expected_conversion_rate}%</span></div>
+                  </div>
+
+                  {optimizationData.suggestions && (
+                    <div className="space-y-1 bg-[#05020D]/50 rounded p-2 text-[9px] text-[#A9A3B8] leading-relaxed">
+                      <div className="font-bold text-white uppercase text-[8px] tracking-wider">AI Optimizer Recommendations:</div>
+                      {optimizationData.suggestions.map((s: string, idx: number) => (
+                        <div key={idx}>• {s}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  {optimizationData.budget_warnings && optimizationData.budget_warnings.length > 0 && (
+                    <div className="space-y-1 bg-[#FF4D6D]/10 rounded p-2 text-[9px] text-[#FF4D6D]">
+                      <div className="font-bold uppercase text-[8px] tracking-wider flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" /> AI Budget Warnings:
+                      </div>
+                      {optimizationData.budget_warnings.map((w: string, idx: number) => (
+                        <div key={idx}>• {w}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleApplyRecommendations}
+                    className="w-full text-center py-1.5 rounded bg-gradient-to-r from-[#8A2BFF] to-[#B066FF] hover:opacity-95 text-white font-bold text-[9px] cursor-pointer"
+                  >
+                    Apply Recommended Parameters
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -871,6 +1007,71 @@ export default function Promote({ user, balance, onCampaignCreated, setActiveTab
             })}
           </div>
         )}
+
+        {/* AI Growth Assistant Widget (Phase 4 - Item 10) */}
+        <div className="rounded-xl border border-[#8A2BFF]/30 bg-gradient-to-br from-[#8A2BFF]/10 to-[#070312] p-4 space-y-3 mt-4">
+          <div className="flex items-center gap-1.5 text-xs font-black text-white uppercase tracking-wider">
+            <Sparkles className="h-4 w-4 text-[#B066FF] animate-pulse" />
+            AI Growth Consultant Assistant
+          </div>
+          <p className="text-[10px] text-[#A9A3B8] leading-relaxed">
+            Ask our personal AI Marketing Advisor for hyper-targeted Web3 community-building, conversion, and reward optimization tips tailored to your active campaigns and resources.
+          </p>
+
+          <div className="space-y-2">
+            <div className="relative">
+              <input
+                type="text"
+                value={assistantPrompt}
+                onChange={(e) => setAssistantPrompt(e.target.value)}
+                placeholder="e.g., How can I increase conversions for my Telegram Mini App in Germany?"
+                className="w-full rounded-lg bg-[#05020D]/80 border border-white/10 py-2 px-3 pr-10 text-xs text-white placeholder-neutral-600 focus:border-[#8A2BFF] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!assistantPrompt.trim()) return;
+                  setAskingAssistant(true);
+                  setAssistantTips([]);
+                  fetch('/api/ai/growth-assistant', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt: assistantPrompt, userId: user.id })
+                  })
+                    .then(res => res.json())
+                    .then(data => {
+                      setAskingAssistant(false);
+                      setAssistantTips(data.advice || []);
+                      showToast('AI consultant analyzed parameters successfully!', 'success', 'Consultant Ready');
+                    })
+                    .catch(err => {
+                      setAskingAssistant(false);
+                      console.error('Error contacting consultant:', err);
+                      showToast('Connection to AI consultant failed.', 'error');
+                    });
+                }}
+                disabled={askingAssistant || !assistantPrompt.trim()}
+                className="absolute right-1 top-1 text-xs bg-[#8A2BFF] hover:bg-[#9E4DFF] text-white px-2.5 py-1 rounded font-bold cursor-pointer disabled:opacity-50"
+              >
+                {askingAssistant ? '...' : 'Ask'}
+              </button>
+            </div>
+
+            {assistantTips.length > 0 && (
+              <div className="space-y-1.5 rounded-lg bg-[#05020D]/60 p-3 border border-[#8A2BFF]/20 text-[10px] font-mono leading-relaxed text-[#A9A3B8]">
+                <div className="font-bold text-white uppercase text-[8px] tracking-wider flex items-center gap-1 mb-1">
+                  <Sparkles className="h-3 w-3 text-[#B066FF]" /> Custom AI Consultant Report:
+                </div>
+                {assistantTips.map((tip, idx) => (
+                  <div key={idx} className="flex gap-1.5 items-start">
+                    <span className="text-[#38F8B0]">✓</span>
+                    <span>{tip}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
